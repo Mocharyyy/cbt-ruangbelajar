@@ -404,7 +404,14 @@ app.get('/api/admin/questions', async (req, res) => {
 
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
-  // 1. Jika tipe soal Benar / Salah / Kompleks berbasis array/objek (Multi-pernyataan per baris)
+  // Normalisasi helper untuk mengubah berbagai bentuk jawaban menjadi string perbandingan yang seragam
+  const normalizeVal = (val) => {
+    if (val === true || val === 'true' || val === 'benar' || val === 'B') return 'BENAR';
+    if (val === false || val === 'false' || val === 'salah' || val === 'S') return 'SALAH';
+    return String(val || '').trim().toUpperCase();
+  };
+
+  // 1. Jika soal Benar/Salah, Kompleks, atau berupa Objek/Array
   if (
     questionType === 'benar_salah' || 
     questionType === 'true_false' || 
@@ -413,22 +420,20 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
     Array.isArray(studentAnswer)
   ) {
     try {
-      // Parse kunci jawaban jika tersimpan sebagai string JSON
       const correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
-      const studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentAnswer;
+      const studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentObj_fix_format(studentAnswer);
 
-      // Jika keduanya berbentuk array atau objek (multi-pernyataan)
+      // Jika keduanya berbentuk objek/array (multi-pernyataan baris per baris)
       if (typeof studentObj === 'object' && typeof correctObj === 'object' && studentObj !== null && correctObj !== null) {
         const studentKeys = Object.keys(studentObj).sort();
         const correctKeys = Object.keys(correctObj).sort();
 
-        // Cek apakah jumlah baris/pernyataan sama
         if (studentKeys.length !== correctKeys.length) return false;
 
-        // Cek kesesuaian nilai jawaban tiap baris (misal: true/false, benar/salah, A/B)
         for (let key of studentKeys) {
-          const valStudent = String(studentObj[key] || '').trim().toUpperCase();
-          const valCorrect = String(correctObj[key] || '').trim().toUpperCase();
+          const valStudent = normalizeVal(studentObj[key]);
+          const valCorrect = normalizeVal(correctObj[key]);
+          
           if (valStudent !== valCorrect) {
             return false;
           }
@@ -436,11 +441,11 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
         return true;
       }
     } catch (e) {
-      // Jika gagal parse JSON, lanjut ke perbandingan string biasa
+      // Abaikan error parse, lanjut ke pengecekan string
     }
   }
 
-  // 2. Jika tipe soal Multiple Choice / Pilihan Ganda Kompleks (Contoh: A,B,D)
+  // 2. Jika tipe soal Multiple Choice (Pilihan Ganda Kompleks)
   if (questionType === 'multiple') {
     const studentArr = String(studentAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
     const correctArr = String(correctAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
@@ -449,8 +454,18 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
     return studentArr.every((val, index) => val === correctArr[index]);
   }
 
-  // 3. Default: Single / Pilihan Ganda Biasa (Contoh: B)
-  return String(studentAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
+  // 3. Default: Pilihan Ganda Biasa / Single Choice
+  return normalizeVal(studentAnswer) === normalizeVal(correctAnswer);
+}
+
+// Fungsi pembantu jika studentAnswer terkirim sebagai array biasa dari frontend
+function studentObj_fix_format(ans) {
+  if (Array.isArray(ans)) {
+    let obj = {};
+    ans.forEach((val, idx) => { obj[idx] = val; });
+    return obj;
+  }
+  return ans;
 }
 
 // Endpoint Submit & Koreksi Otomatis Ujian Siswa
