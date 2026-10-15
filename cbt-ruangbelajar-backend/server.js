@@ -405,41 +405,42 @@ app.get('/api/admin/questions', async (req, res) => {
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    // Parse JSON jika data dari database atau frontend masih berupa string
-    let correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
-    let studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentAnswer;
-
-    // Normalisasi nilai jawaban agar seragam (true/benar/1 -> 'BENAR', false/salah/0 -> 'SALAH')
-    const normalizeVal = (val) => {
-      const v = String(val ?? '').trim().toLowerCase();
-      if (v === 'true' || v === 'benar' || v === 'b' || v === '1') return 'BENAR';
-      if (v === 'false' || v === 'salah' || v === 's' || v === '0') return 'SALAH';
-      return v.toUpperCase();
-    };
-
-    // Jika bentuknya objek (seperti {A: false, B: true, C: false} atau berbasis indeks angka)
-    if (studentObj && correctObj && typeof studentObj === 'object' && typeof correctObj === 'object') {
-      const studentKeys = Object.keys(studentObj).sort();
-      const correctKeys = Object.keys(correctObj).sort();
-
-      if (studentKeys.length !== correctKeys.length) return false;
-
-      // Bandingkan baris demi baris secara berurutan
-      for (let i = 0; i < studentKeys.length; i++) {
-        const sVal = normalizeVal(studentObj[studentKeys[i]]);
-        const cVal = normalizeVal(correctObj[correctKeys[i]]);
-
-        if (sVal !== cVal) {
-          return false;
-        }
-      }
-      return true;
+    // 1. Jika jawaban siswa berbentuk Objek Benar/Salah ({A: true, B: false, C: true})
+    // Ubah otomatis menjadi array huruf yang bernilai true/benar saja -> ['A', 'C']
+    if (studentAnswer && typeof studentAnswer === 'object' && !Array.isArray(studentAnswer)) {
+      studentAnswer = Object.keys(studentAnswer).filter(k => {
+        const val = studentAnswer[k];
+        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
+      });
     }
-  } catch (err) {
-    // Jika gagal parse, lanjut ke perbandingan teks biasa
+
+    // 2. Lakukan hal yang sama untuk kunci jawaban di database jika bentuknya objek
+    if (correctAnswer && typeof correctAnswer === 'object' && !Array.isArray(correctAnswer)) {
+      correctAnswer = Object.keys(correctAnswer).filter(k => {
+        const val = correctAnswer[k];
+        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
+      });
+    } else if (typeof correctAnswer === 'string' && correctAnswer.startsWith('{')) {
+      const parsed = JSON.parse(correctAnswer);
+      correctAnswer = Object.keys(parsed).filter(k => {
+        const val = parsed[k];
+        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
+      });
+    }
+
+    // 3. Jika keduanya sudah berupa Array / List huruf (Contoh: ['A', 'B'] vs ['A', 'B'])
+    if (Array.isArray(studentAnswer) && Array.isArray(correctAnswer)) {
+      const cleanStudent = studentAnswer.map(s => String(s).trim().toUpperCase()).sort();
+      const cleanCorrect = correctAnswer.map(c => String(c).trim().toUpperCase()).sort();
+
+      if (cleanStudent.length !== cleanCorrect.length) return false;
+      return cleanStudent.every((val, idx) => val === cleanCorrect[idx]);
+    }
+  } catch (e) {
+    // Abaikan jika ada error parse
   }
 
-  // Fallback untuk pilihan ganda biasa (single choice)
+  // 4. Fallback untuk pilihan ganda biasa (Single choice)
   return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
