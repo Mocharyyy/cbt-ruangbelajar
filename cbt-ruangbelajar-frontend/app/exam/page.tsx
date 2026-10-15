@@ -368,59 +368,63 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
 </div>
 
             {/* A. TIPE SINGLE CHOICE */}
-            {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
-              <div className="space-y-3 pl-2">
-                {optionsList.map((opt) => {
-                  const isSelected = currentAns === opt.label;
-                  return (
-                    <div
-                      key={opt.label}
-                      onClick={() => handleSingleChoice(opt.label)}
-                      className="flex items-start gap-3 cursor-pointer group py-1"
-                    >
-                      <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                        isSelected ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
-                      }`}>
-                        {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
-                      </div>
-                      <span className="text-sm md:text-base text-slate-700 leading-snug">
-                        {opt.text}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+{(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
+  <div className="space-y-3 pl-2">
+    {optionsList.map((opt) => {
+      const isSelected = currentAns === opt.label;
+      return (
+        <div
+          key={opt.label}
+          onClick={() => handleSingleChoice(opt.label)}
+          className="flex items-start gap-3 cursor-pointer group py-1"
+        >
+          <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+            isSelected ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
+          }`}>
+            {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+          </div>
+          {/* Label Abjad (A, B, C, D) & Teks Jawaban */}
+          <div className="flex items-start gap-2 text-sm md:text-base text-slate-700 leading-snug">
+            <span className="font-semibold">{opt.label}.</span>
+            <span>{opt.text}</span>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}
 
-            {/* B. TIPE MULTIPLE CHOICE */}
-            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
-              <div className="space-y-3 pl-2">
-                {optionsList.map((opt) => {
-                  const list = Array.isArray(currentAns) ? currentAns : [];
-                  const isChecked = list.includes(opt.label);
-                  return (
-                    <div
-                      key={opt.label}
-                      onClick={() => handleMultipleChoice(opt.label)}
-                      className="flex items-start gap-3 cursor-pointer group py-1"
-                    >
-                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                        isChecked ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
-                      }`}>
-                        {isChecked && (
-                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                      <span className="text-sm md:text-base text-slate-700 leading-snug">
-                        {opt.text}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+{/* B. TIPE MULTIPLE CHOICE */}
+{(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
+  <div className="space-y-3 pl-2">
+    {optionsList.map((opt) => {
+      const list = Array.isArray(currentAns) ? currentAns : [];
+      const isChecked = list.includes(opt.label);
+      return (
+        <div
+          key={opt.label}
+          onClick={() => handleMultipleChoice(opt.label)}
+          className="flex items-start gap-3 cursor-pointer group py-1"
+        >
+          <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+            isChecked ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
+          }`}>
+            {isChecked && (
+              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+              </svg>
             )}
+          </div>
+          {/* Label Abjad (A, B, C, D) & Teks Jawaban */}
+          <div className="flex items-start gap-2 text-sm md:text-base text-slate-700 leading-snug">
+            <span className="font-semibold">{opt.label}.</span>
+            <span>{opt.text}</span>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}
 
             {/* C. TIPE TRUE / FALSE */}
             {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
