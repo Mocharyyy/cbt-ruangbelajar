@@ -288,9 +288,9 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
   };
 
   // Handler Benar/Salah
-  const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
-    const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns) 
-      ? currentAns 
+ const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
+    const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
+      ? (currentAns as { [key: string]: boolean })
       : {};
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
@@ -519,30 +519,44 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
               </button>
             </div>
 
-            <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5 max-h-72 overflow-y-auto p-1">
-              {questions.map((q, idx) => {
-                const isAnswered = answers[q.id] !== undefined;
-                const isCurrent = idx === currentIndex;
-                return (
-                  <button
-                    key={q.id || idx}
-                    onClick={() => {
-                      setCurrentIndex(idx);
-                      setShowQuestionModal(false);
-                    }}
-                    className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center border ${
-                      isCurrent
-                        ? 'bg-[#327ca6] text-white border-[#327ca6]'
-                        : isAnswered
-                        ? 'bg-[#52b765] text-white border-[#52b765]'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
-            </div>
+           <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5 max-h-72 overflow-y-auto p-1">
+  {questions.map((q, idx) => {
+    const ansVal = answers[q.id];
+    
+    // Pengecekan cerdas untuk semua tipe soal (bisa string, array, atau objek benar/salah)
+    let isAnswered = false;
+    if (ansVal !== undefined && ansVal !== null) {
+      if (Array.isArray(ansVal)) {
+        isAnswered = ansVal.length > 0;
+      } else if (typeof ansVal === 'object') {
+        // Dianggap sudah dijawab jika objeknya memiliki minimal 1 properti
+        isAnswered = Object.keys(ansVal).length > 0;
+      } else {
+        isAnswered = String(ansVal).trim() !== '';
+      }
+    }
+
+    const isCurrent = idx === currentIndex;
+    return (
+      <button
+        key={q.id || idx}
+        onClick={() => {
+          setCurrentIndex(idx);
+          setShowQuestionModal(false);
+        }}
+        className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center border ${
+          isCurrent
+            ? 'bg-[#327ca6] text-white border-[#327ca6]'
+            : isAnswered
+            ? 'bg-[#52b765] text-white border-[#52b765]'
+            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+        }`}
+      >
+        {idx + 1}
+      </button>
+    );
+  })}
+</div>
 
             <div className="mt-6 pt-3 border-t flex justify-end">
               <button
