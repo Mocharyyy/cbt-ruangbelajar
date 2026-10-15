@@ -40,9 +40,9 @@ export default function DashboardPage() {
         const parsedUser = JSON.parse(savedUser);
         setUser(parsedUser);
 
-        const res = await fetch(`http://localhost:5000/api/exams?user_id=${parsedUser.id}`);
-        const data = await res.json();
-        
+        const res = await fetch(`https://cbt-ruangbelajar-backend.vercel.app/api/exams?user_id=${parsedUser.id}`);
+const data = await res.json();
+
         if (data.success) {
           const fetchedExams = data.exams || [];
           
