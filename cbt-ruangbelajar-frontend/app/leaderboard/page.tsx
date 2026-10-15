@@ -42,7 +42,7 @@ export default function LeaderboardPage() {
 
         {/* Header / Info */}
         <div className="text-center mb-10">
-          <p className="text-xs text-emerald-200 mt-1">Diurutkan berdasarkan skor tertinggi dan waktu pengerjaan tercepat</p>
+          <p className="text-xs text-emerald-200 mt-1">Akumulasi total skor dari seluruh ujian yang diselesaikan</p>
         </div>
 
         {/* List Ranking */}
@@ -56,7 +56,7 @@ export default function LeaderboardPage() {
           <div className="space-y-4">
             {leaderboard.map((item, index) => (
               <div 
-                key={index} 
+                key={item.user_id || index} 
                 className="bg-white text-slate-800 rounded-2xl p-5 shadow-md flex items-center justify-between transform transition hover:scale-[1.01]"
               >
                 <div className="flex items-center space-x-4">
@@ -67,13 +67,13 @@ export default function LeaderboardPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-base text-slate-900">{item.nama_siswa}</h3>
-                    <p className="text-xs text-gray-500">{item.judul_ujian}</p>
+                    <p className="text-xs text-gray-500">Selesai: {item.total_ujian_dikerjakan} paket mapel</p>
                     <div className="flex items-center space-x-2 mt-1">
                       <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
                         Bayes: {item.status_bayes || 'Selesai'}
                       </span>
                       <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                        ⏱️ {formatDuration(item.duration)}
+                        ⏱️ Total Waktu: {formatDuration(item.duration)}
                       </span>
                     </div>
                   </div>

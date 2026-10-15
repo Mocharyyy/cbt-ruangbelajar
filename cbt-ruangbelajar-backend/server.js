@@ -690,10 +690,12 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
 });
 
 // Endpoint Papan Peringkat (Leaderboard) dengan Akumulasi Nilai Total
+// Endpoint Leaderboard Akumulasi Total Skor
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const query = `
       SELECT 
+        users.id AS user_id,
         users.nama AS nama_siswa, 
         SUM(student_exams.score) AS score, 
         SUM(student_exams.duration) AS duration,
