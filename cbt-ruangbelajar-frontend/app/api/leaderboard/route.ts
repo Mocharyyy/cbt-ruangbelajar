@@ -15,19 +15,18 @@ export async function GET() {
       }
     });
 
+    // Query disesuaikan dengan kolom dasar tabel (nama, score, status)
     const query = `
       SELECT 
         users.id AS user_id,
         users.nama AS nama_siswa, 
         SUM(student_exams.score) AS score, 
-        SUM(student_exams.duration) AS duration,
-        MAX(student_exams.status_bayes) AS status_bayes,
         COUNT(student_exams.id) AS total_ujian_dikerjakan
       FROM student_exams 
       JOIN users ON student_exams.user_id = users.id 
       WHERE student_exams.status = 'completed'
       GROUP BY users.id, users.nama 
-      ORDER BY score DESC, duration ASC 
+      ORDER BY score DESC 
       LIMIT 10
     `;
 
