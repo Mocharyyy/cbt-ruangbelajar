@@ -402,19 +402,46 @@ app.get('/api/admin/questions', async (req, res) => {
   }
 });
 
-
-// ==========================================
-// TAMBAHAN: FUNGSI EVALUASI & PENILAIAN UJIAN SISWA
-// ==========================================
-
+// Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
-  // 1. Jika tipe soal Benar / Salah (True / False)
-  if (questionType === 'benar_salah' || questionType === 'true_false') {
-    return String(studentAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
+  // 1. Jika tipe soal Benar / Salah / Kompleks berbasis array/objek (Multi-pernyataan per baris)
+  if (
+    questionType === 'benar_salah' || 
+    questionType === 'true_false' || 
+    questionType === 'complex' ||
+    typeof studentAnswer === 'object' || 
+    Array.isArray(studentAnswer)
+  ) {
+    try {
+      // Parse kunci jawaban jika tersimpan sebagai string JSON
+      const correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
+      const studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentAnswer;
+
+      // Jika keduanya berbentuk array atau objek (multi-pernyataan)
+      if (typeof studentObj === 'object' && typeof correctObj === 'object' && studentObj !== null && correctObj !== null) {
+        const studentKeys = Object.keys(studentObj).sort();
+        const correctKeys = Object.keys(correctObj).sort();
+
+        // Cek apakah jumlah baris/pernyataan sama
+        if (studentKeys.length !== correctKeys.length) return false;
+
+        // Cek kesesuaian nilai jawaban tiap baris (misal: true/false, benar/salah, A/B)
+        for (let key of studentKeys) {
+          const valStudent = String(studentObj[key] || '').trim().toUpperCase();
+          const valCorrect = String(correctObj[key] || '').trim().toUpperCase();
+          if (valStudent !== valCorrect) {
+            return false;
+          }
+        }
+        return true;
+      }
+    } catch (e) {
+      // Jika gagal parse JSON, lanjut ke perbandingan string biasa
+    }
   }
 
-  // 2. Jika tipe soal Multiple / Pilihan Ganda Kompleks (Bisa pilih banyak, contoh: A,B,D)
-  if (questionType === 'multiple' || questionType === 'complex') {
+  // 2. Jika tipe soal Multiple Choice / Pilihan Ganda Kompleks (Contoh: A,B,D)
+  if (questionType === 'multiple') {
     const studentArr = String(studentAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
     const correctArr = String(correctAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
     
@@ -422,7 +449,7 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
     return studentArr.every((val, index) => val === correctArr[index]);
   }
 
-  // 3. Default: Single / Pilihan Ganda Biasa (Hanya 1 jawaban, contoh: B)
+  // 3. Default: Single / Pilihan Ganda Biasa (Contoh: B)
   return String(studentAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
 }
 
