@@ -639,6 +639,35 @@ app.post('/api/exams/finish', async (req, res) => {
   }
 });
 
+// Endpoint untuk melihat daftar user yang mendaftar/login (Sesuai struktur tabel phpMyAdmin)
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const query = `
+      SELECT id, kelas_id, nama, email, exam_passcode, asal_sekolah, tingkat_kelas, role, created_at 
+      FROM users 
+      ORDER BY created_at DESC
+    `;
+    const [rows] = await db.query(query);
+    res.json({ success: true, users: rows });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Endpoint untuk menghapus user berdasarkan ID
+app.delete('/api/admin/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = 'DELETE FROM users WHERE id = ?';
+    await db.query(query, [id]);
+    res.json({ success: true, message: 'User berhasil dihapus' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==========================================
 // RUN SERVER
 // ==========================================
