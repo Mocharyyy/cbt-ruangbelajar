@@ -405,40 +405,55 @@ app.get('/api/admin/questions', async (req, res) => {
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    if (studentAnswer && typeof studentAnswer === 'object' && !Array.isArray(studentAnswer)) {
-      studentAnswer = Object.keys(studentAnswer).filter(k => {
+    // 1. Normalisasi data siswa (ubah ke array huruf/status baris yang bersih)
+    let sArr = [];
+    if (Array.isArray(studentAnswer)) {
+      sArr = studentAnswer.map(v => String(v).trim().toUpperCase());
+    } else if (typeof studentAnswer === 'object' && studentAnswer !== null) {
+      // Jika dari objek {A: true, B: true, C: false}, ambil key yang bernilai true/benar/b
+      sArr = Object.keys(studentAnswer).filter(k => {
         const val = studentAnswer[k];
-        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
-      });
+        return val === true || val === 'true' || val === 'benar' || val === 'B' || val === 1;
+      }).map(v => v.toUpperCase());
+    } else if (typeof studentAnswer === 'string') {
+      sArr = studentAnswer.split(',').map(v => v.trim().toUpperCase());
     }
 
-    // 2. Lakukan hal yang sama untuk kunci jawaban di database jika bentuknya objek
-    if (correctAnswer && typeof correctAnswer === 'object' && !Array.isArray(correctAnswer)) {
-      correctAnswer = Object.keys(correctAnswer).filter(k => {
+    // 2. Normalisasi kunci jawaban dari database
+    let cArr = [];
+    if (Array.isArray(correctAnswer)) {
+      cArr = correctAnswer.map(v => String(v).trim().toUpperCase());
+    } else if (typeof correctAnswer === 'object' && correctAnswer !== null) {
+      cArr = Object.keys(correctAnswer).filter(k => {
         const val = correctAnswer[k];
-        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
-      });
-    } else if (typeof correctAnswer === 'string' && correctAnswer.startsWith('{')) {
-      const parsed = JSON.parse(correctAnswer);
-      correctAnswer = Object.keys(parsed).filter(k => {
-        const val = parsed[k];
-        return val === true || val === 'true' || val === 'benar' || val === 'b' || val === 1;
-      });
+        return val === true || val === 'true' || val === 'benar' || val === 'B' || val === 1;
+      }).map(v => v.toUpperCase());
+    } else if (typeof correctAnswer === 'string') {
+      // Jika disimpan sebagai string koma "A,B" atau JSON string
+      if (correctAnswer.startsWith('{') || correctAnswer.startsWith('[')) {
+        const parsed = JSON.parse(correctAnswer);
+        if (Array.isArray(parsed)) {
+          cArr = parsed.map(v => String(v).trim().toUpperCase());
+        } else {
+          cArr = Object.keys(parsed).filter(k => parsed[k] === true || parsed[k] === 'true' || parsed[k] === 'B').map(v => v.toUpperCase());
+        }
+      } else {
+        cArr = correctAnswer.split(',').map(v => v.trim().toUpperCase());
+      }
     }
 
-    // 3. Jika keduanya sudah berupa Array / List huruf (Contoh: ['A', 'B'] vs ['A', 'B'])
-    if (Array.isArray(studentAnswer) && Array.isArray(correctAnswer)) {
-      const cleanStudent = studentAnswer.map(s => String(s).trim().toUpperCase()).sort();
-      const cleanCorrect = correctAnswer.map(c => String(c).trim().toUpperCase()).sort();
-
-      if (cleanStudent.length !== cleanCorrect.length) return false;
-      return cleanStudent.every((val, idx) => val === cleanCorrect[idx]);
+    // 3. Bandingkan array jawaban siswa dan kunci jawaban secara persis (seperti pilihan ganda kompleks)
+    if (sArr.length > 0 || cArr.length > 0) {
+      const sSorted = [...sArr].sort();
+      const cSorted = [...cArr].sort();
+      if (sSorted.length !== cSorted.length) return false;
+      return sSorted.every((val, idx) => val === cSorted[idx]);
     }
   } catch (e) {
-    // Abaikan jika ada error parse
+    console.log("Error evaluate:", e.message);
   }
 
-  // 4. Fallback untuk pilihan ganda biasa (Single choice)
+  // 4. Fallback untuk pilihan ganda biasa (single choice)
   return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
