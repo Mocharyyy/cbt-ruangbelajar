@@ -629,12 +629,47 @@ app.post('/api/student/answer', async (req, res) => {
 
 app.post('/api/exam/finish', async (req, res) => {
   try {
-    const { student_exam_id, final_score } = req.body;
+    const { student_exam_id } = req.body;
 
-    // Hitung status kesiapan / naive bayes jika ada
+    // 1. Ambil semua jawaban siswa untuk ujian ini dari database
+    const [studentAnswers] = await db.query(
+      'SELECT * FROM student_answers WHERE student_exam_id = ?',
+      [student_exam_id]
+    );
+
+    // 2. Ambil semua data soal beserta kunci jawabannya
+    const [questions] = await db.query(
+      'SELECT id, correct_answer, question_type FROM questions'
+    );
+
+    let correctCount = 0;
+    let totalQuestions = questions.length;
+
+    // 3. Evaluasi setiap jawaban siswa secara otomatis di backend
+    for (let ans of studentAnswers) {
+      const question = questions.find(q => q.id == ans.question_id);
+      if (question) {
+        // Panggil fungsi evaluateAnswer yang sudah kita buat
+        const isTrue = evaluateAnswer(ans.jawaban, question.correct_answer, question.question_type);
+        const statusBenarSalah = isTrue ? 1 : 0;
+
+        if (isTrue) {
+          correctCount++;
+        }
+
+        // Update status benar/salah per soal di database
+        await db.query(
+          'UPDATE student_answers SET is_correct = ? WHERE student_exam_id = ? AND question_id = ?',
+          [statusBenarSalah, student_exam_id, ans.question_id]
+        );
+      }
+    }
+
+    // 4. Hitung skor akhir (Skala 0 - 100)
+    const final_score = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
     const status_kesiapan = final_score >= 75 ? 'SIAP' : 'BELUM SIAP';
 
-    // Update data di tabel student_exams
+    // 5. Simpan skor akhir ke tabel student_exams
     await db.query(
       `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
       [final_score, student_exam_id]
@@ -642,7 +677,8 @@ app.post('/api/exam/finish', async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Ujian berhasil diselesaikan',
+      message: 'Ujian berhasil diselesaikan dan dinilai otomatis',
+      final_score: final_score,
       status_kesiapan: status_kesiapan
     });
   } catch (error) {
