@@ -595,21 +595,21 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
   }
 });
 
-// Endpoint Papan Peringkat (Leaderboard)
+// Endpoint Papan Peringkat (Leaderboard) dengan Akumulasi Nilai Total
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const query = `
       SELECT 
-        student_exams.score, 
-        student_exams.status_bayes, 
-        student_exams.duration,
         users.nama AS nama_siswa, 
-        exams.judul_ujian 
+        SUM(student_exams.score) AS score, 
+        SUM(student_exams.duration) AS duration,
+        MAX(student_exams.status_bayes) AS status_bayes,
+        COUNT(student_exams.id) AS total_ujian_dikerjakan
       FROM student_exams 
       JOIN users ON student_exams.user_id = users.id 
-      JOIN exams ON student_exams.exam_id = exams.id 
       WHERE student_exams.status = 'completed'
-      ORDER BY student_exams.score DESC, student_exams.duration ASC 
+      GROUP BY users.id, users.nama 
+      ORDER BY score DESC, duration ASC 
       LIMIT 10
     `;
     const [rows] = await db.query(query);
