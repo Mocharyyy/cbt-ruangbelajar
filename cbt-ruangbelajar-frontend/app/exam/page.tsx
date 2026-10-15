@@ -43,7 +43,7 @@ function ExamContent() {
   useEffect(() => {
     if (!examId) return;
 
-    fetch(`http://localhost:5000/api/exams/${examId}/questions`)
+    fetch(`https://cbt-ruangbelajar-backend.vercel.app/api/exams/${examId}/questions`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
