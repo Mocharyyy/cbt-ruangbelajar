@@ -404,68 +404,40 @@ app.get('/api/admin/questions', async (req, res) => {
 
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
-  // Normalisasi helper untuk mengubah berbagai bentuk jawaban menjadi string perbandingan yang seragam
-  const normalizeVal = (val) => {
-    if (val === true || val === 'true' || val === 'benar' || val === 'B') return 'BENAR';
-    if (val === false || val === 'false' || val === 'salah' || val === 'S') return 'SALAH';
-    return String(val || '').trim().toUpperCase();
-  };
+  try {
+    // Parse JSON jika data masih berbentuk string
+    let correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
+    let studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentAnswer;
 
-  // 1. Jika soal Benar/Salah, Kompleks, atau berupa Objek/Array
-  if (
-    questionType === 'benar_salah' || 
-    questionType === 'true_false' || 
-    questionType === 'complex' ||
-    typeof studentAnswer === 'object' || 
-    Array.isArray(studentAnswer)
-  ) {
-    try {
-      const correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
-      const studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentObj_fix_format(studentAnswer);
+    // Helper untuk mengubah nilai boolean / string menjadi standar 'BENAR' atau 'SALAH'
+    const normalizeVal = (val) => {
+      const v = String(val ?? '').trim().toLowerCase();
+      if (v === 'true' || v === 'benar' || v === 'b' || v === '1') return 'BENAR';
+      if (v === 'false' || v === 'salah' || v === 's' || v === '0') return 'SALAH';
+      return v.toUpperCase();
+    };
 
-      // Jika keduanya berbentuk objek/array (multi-pernyataan baris per baris)
-      if (typeof studentObj === 'object' && typeof correctObj === 'object' && studentObj !== null && correctObj !== null) {
-        const studentKeys = Object.keys(studentObj).sort();
-        const correctKeys = Object.keys(correctObj).sort();
+    // Jika jawaban berupa objek multi-pernyataan (seperti {A: false, B: true, C: false})
+    if (studentObj && correctObj && typeof studentObj === 'object' && typeof correctObj === 'object') {
+      const studentVals = Object.keys(studentObj).sort().map(k => normalizeVal(studentObj[k]));
+      const correctVals = Object.keys(correctObj).sort().map(k => normalizeVal(correctObj[k]));
 
-        if (studentKeys.length !== correctKeys.length) return false;
+      if (studentVals.length !== correctVals.length) return false;
 
-        for (let key of studentKeys) {
-          const valStudent = normalizeVal(studentObj[key]);
-          const valCorrect = normalizeVal(correctObj[key]);
-          
-          if (valStudent !== valCorrect) {
-            return false;
-          }
+      // Bandingkan isi jawaban siswa dengan kunci jawaban per baris
+      for (let i = 0; i < studentVals.length; i++) {
+        if (studentVals[i] !== correctVals[i]) {
+          return false;
         }
-        return true;
       }
-    } catch (e) {
-      // Abaikan error parse, lanjut ke pengecekan string
+      return true;
     }
+  } catch (err) {
+    // Jika gagal parse, lanjut ke pencocokan teks biasa
   }
 
-  // 2. Jika tipe soal Multiple Choice (Pilihan Ganda Kompleks)
-  if (questionType === 'multiple') {
-    const studentArr = String(studentAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
-    const correctArr = String(correctAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
-    
-    if (studentArr.length !== correctArr.length) return false;
-    return studentArr.every((val, index) => val === correctArr[index]);
-  }
-
-  // 3. Default: Pilihan Ganda Biasa / Single Choice
-  return normalizeVal(studentAnswer) === normalizeVal(correctAnswer);
-}
-
-// Fungsi pembantu jika studentAnswer terkirim sebagai array biasa dari frontend
-function studentObj_fix_format(ans) {
-  if (Array.isArray(ans)) {
-    let obj = {};
-    ans.forEach((val, idx) => { obj[idx] = val; });
-    return obj;
-  }
-  return ans;
+  // Pencocokan biasa untuk soal pilihan ganda 1 jawaban (A/B/C/D)
+  return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
 // Endpoint Submit & Koreksi Otomatis Ujian Siswa
