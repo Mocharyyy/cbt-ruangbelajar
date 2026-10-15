@@ -405,8 +405,6 @@ app.get('/api/admin/questions', async (req, res) => {
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    // 1. Jika jawaban siswa berbentuk Objek Benar/Salah ({A: true, B: false, C: true})
-    // Ubah otomatis menjadi array huruf yang bernilai true/benar saja -> ['A', 'C']
     if (studentAnswer && typeof studentAnswer === 'object' && !Array.isArray(studentAnswer)) {
       studentAnswer = Object.keys(studentAnswer).filter(k => {
         const val = studentAnswer[k];
@@ -635,27 +633,28 @@ app.post('/api/exam/finish', async (req, res) => {
   try {
     const { student_exam_id } = req.body;
 
-    // 1. Ambil semua jawaban siswa dari database
-    const [studentAnswers] = await db.query(
+    // 1. Ambil semua jawaban siswa (gunakan tanpa destrukturing agar aman dari error driver)
+    const studentAnswers = await db.query(
       'SELECT * FROM student_answers WHERE student_exam_id = ?',
       [student_exam_id]
     );
+    // Jika driver mysql mengembalikan format [rows, fields], ambil rows-nya
+    const answersList = Array.isArray(studentAnswers) && Array.isArray(studentAnswers[0]) ? studentAnswers[0] : studentAnswers;
 
     // 2. Ambil semua data soal dan kunci jawabannya
-    const [questions] = await db.query(
+    const questionsResult = await db.query(
       'SELECT id, correct_answer, question_type FROM questions'
     );
+    const questionsList = Array.isArray(questionsResult) && Array.isArray(questionsResult[0]) ? questionsResult[0] : questionsResult;
 
     let correctCount = 0;
-    let totalQuestions = questions.length > 0 ? questions.length : 50; // default 50 soal
+    let totalQuestions = questionsList.length > 0 ? questionsList.length : 50;
 
-    // 3. Evaluasi otomatis jawaban siswa menggunakan fungsi evaluateAnswer
-    for (let ans of studentAnswers) {
-      const q = questions.find(item => item.id == ans.question_id);
+    // 3. Evaluasi otomatis jawaban siswa
+    for (let ans of answersList) {
+      const q = questionsList.find(item => item.id == ans.question_id);
       if (q) {
-        // Ambil nilai jawaban (bisa dari kolom jawaban / answer_value)
         const studentVal = ans.jawaban !== undefined ? ans.jawaban : ans.answer_value;
-        
         const isTrue = evaluateAnswer(studentVal, q.correct_answer, q.question_type);
         if (isTrue) {
           correctCount++;
@@ -663,8 +662,8 @@ app.post('/api/exam/finish', async (req, res) => {
       }
     }
 
-    // 4. Hitung skor akhir secara akurat (skala 0 - 100)
-    const final_score = Math.round((correctCount / totalQuestions) * 100);
+    // 4. Hitung skor akhir
+    const final_score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
     const status_kesiapan = final_score >= 75 ? 'SIAP' : 'BELUM SIAP';
 
     // 5. Simpan ke database
