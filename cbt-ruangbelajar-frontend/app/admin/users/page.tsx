@@ -25,7 +25,7 @@ export default function AdminUsersPage() {
   };
 
   useEffect(() => {
-    // 1. Cek data user yang sedang login
+    // 1. Cek data user yang sedang login di localStorage
     const storedUser = localStorage.getItem('user'); 
     
     if (storedUser) {
@@ -37,7 +37,8 @@ export default function AdminUsersPage() {
         return;
       }
     } else {
-      router.push('/login');
+      // 3. Jika belum login sama sekali, arahkan ke halaman utama (root)
+      router.push('/');
       return;
     }
 
@@ -58,7 +59,7 @@ export default function AdminUsersPage() {
 
       if (data.success) {
         alert('User berhasil dihapus!');
-        // Refresh data setelah dihapus
+        // Refresh data setelah dihapus dari state lokal
         setUsers(users.filter((user) => user.id !== id));
       } else {
         alert('Gagal menghapus user: ' + data.message);
