@@ -203,6 +203,10 @@ app.post('/api/student/verify-passcode', async (req, res) => {
 // ENDPOINT ADMIN (BANK SOAL & UPLOAD)
 // ==========================================
 
+// ==========================================
+// KODE ADMIN: TAMBAH & UPDATE SOAL
+// ==========================================
+
 // 1. Upload Gambar Soal
 app.post('/api/admin/upload', upload.single('image'), (req, res) => {
   if (!req.file) {
@@ -218,7 +222,7 @@ app.post('/api/admin/upload', upload.single('image'), (req, res) => {
   res.json({ success: true, imageUrl });
 });
 
-// 2. Tambah Soal Baru (POST)
+// 2. Tambah Soal Baru (POST) - DIPERBAIKI
 app.post('/api/admin/questions', async (req, res) => {
   try {
     const { 
@@ -228,16 +232,11 @@ app.post('/api/admin/questions', async (req, res) => {
       soal,
       gambar_soal, 
       image_url,
-      opsi_a_text, 
-      opsi_a,
-      opsi_b_text, 
-      opsi_b,
-      opsi_c_text, 
-      opsi_c,
-      opsi_d_text, 
-      opsi_d,
-      opsi_e_text,
-      opsi_e,
+      opsi_a_text, opsi_a,
+      opsi_b_text, opsi_b,
+      opsi_c_text, opsi_c,
+      opsi_d_text, opsi_d,
+      opsi_e_text, opsi_e,
       kunci_jawaban 
     } = req.body;
 
@@ -249,9 +248,15 @@ app.post('/api/admin/questions', async (req, res) => {
     const optD = opsi_d_text || opsi_d || '';
     const optE = opsi_e_text || opsi_e || '';
 
-    const formattedKunci = typeof kunci_jawaban === 'object' 
-      ? JSON.stringify(kunci_jawaban) 
-      : kunci_jawaban;
+    // Perbaikan penanganan kunci jawaban agar rapi berbasis teks string koma bersih
+    let formattedKunci = '';
+    if (Array.isArray(kunci_jawaban)) {
+      formattedKunci = kunci_jawaban.join(',').trim();
+    } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
+      formattedKunci = Object.values(kunci_jawaban).join(',').trim();
+    } else {
+      formattedKunci = String(kunci_jawaban || '').trim();
+    }
 
     const query = `
       INSERT INTO questions 
@@ -264,11 +269,7 @@ app.post('/api/admin/questions', async (req, res) => {
       tipe_soal || 'single',
       questionText,
       questionImg,
-      optA,
-      optB,
-      optC,
-      optD,
-      optE,
+      optA, optB, optC, optD, optE,
       formattedKunci
     ]);
 
@@ -279,7 +280,7 @@ app.post('/api/admin/questions', async (req, res) => {
   }
 });
 
-// 3. Update Soal (PUT)
+// 3. Update Soal (PUT) - DIPERBAIKI
 app.put('/api/admin/questions/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -289,16 +290,11 @@ app.put('/api/admin/questions/:id', async (req, res) => {
       soal,
       gambar_soal, 
       image_url,
-      opsi_a_text, 
-      opsi_a,
-      opsi_b_text, 
-      opsi_b,
-      opsi_c_text, 
-      opsi_c,
-      opsi_d_text, 
-      opsi_d,
-      opsi_e_text,
-      opsi_e,
+      opsi_a_text, opsi_a,
+      opsi_b_text, opsi_b,
+      opsi_c_text, opsi_c,
+      opsi_d_text, opsi_d,
+      opsi_e_text, opsi_e,
       kunci_jawaban 
     } = req.body;
 
@@ -310,9 +306,15 @@ app.put('/api/admin/questions/:id', async (req, res) => {
     const optD = opsi_d_text || opsi_d || '';
     const optE = opsi_e_text || opsi_e || '';
 
-    const formattedKunci = typeof kunci_jawaban === 'object' 
-      ? JSON.stringify(kunci_jawaban) 
-      : kunci_jawaban;
+    // Perbaikan penanganan kunci jawaban saat update
+    let formattedKunci = '';
+    if (Array.isArray(kunci_jawaban)) {
+      formattedKunci = kunci_jawaban.join(',').trim();
+    } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
+      formattedKunci = Object.values(kunci_jawaban).join(',').trim();
+    } else {
+      formattedKunci = String(kunci_jawaban || '').trim();
+    }
 
     const query = `
       UPDATE questions SET 
@@ -326,11 +328,7 @@ app.put('/api/admin/questions/:id', async (req, res) => {
       tipe_soal || 'single',
       questionText,
       questionImg,
-      optA,
-      optB,
-      optC,
-      optD,
-      optE,
+      optA, optB, optC, optD, optE,
       formattedKunci,
       id
     ]);
@@ -372,7 +370,6 @@ app.delete('/api/admin/questions/:id', async (req, res) => {
 
         if (fs.existsSync(fullPath)) {
           fs.unlinkSync(fullPath);
-          console.log(`[BERHASIL HAPUS GAMBAR]: ${fullPath}`);
         }
       }
     });
@@ -401,6 +398,76 @@ app.get('/api/admin/questions', async (req, res) => {
     const [rows] = await db.query(query, params);
     res.json({ success: true, total: rows.length, questions: rows });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+
+// ==========================================
+// TAMBAHAN: FUNGSI EVALUASI & PENILAIAN UJIAN SISWA
+// ==========================================
+
+function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
+  // 1. Jika tipe soal Benar / Salah (True / False)
+  if (questionType === 'benar_salah' || questionType === 'true_false') {
+    return String(studentAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
+  }
+
+  // 2. Jika tipe soal Multiple / Pilihan Ganda Kompleks (Bisa pilih banyak, contoh: A,B,D)
+  if (questionType === 'multiple' || questionType === 'complex') {
+    const studentArr = String(studentAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
+    const correctArr = String(correctAnswer || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean).sort();
+    
+    if (studentArr.length !== correctArr.length) return false;
+    return studentArr.every((val, index) => val === correctArr[index]);
+  }
+
+  // 3. Default: Single / Pilihan Ganda Biasa (Hanya 1 jawaban, contoh: B)
+  return String(studentAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
+}
+
+// Endpoint Submit & Koreksi Otomatis Ujian Siswa
+app.post('/api/exam/submit', async (req, res) => {
+  try {
+    const { answers } = req.body; // Array jawaban siswa: [{ question_id, user_answer }]
+    let totalScore = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ success: false, message: 'Format jawaban tidak valid' });
+    }
+
+    for (let ans of answers) {
+      const [rows] = await db.query('SELECT kunci_jawaban, tipe_soal FROM questions WHERE id = ?', [ans.question_id]);
+      
+      if (rows.length > 0) {
+        const question = rows[0];
+        
+        // Koreksi jawaban menggunakan fungsi evaluasi multi-tipe
+        const isCorrect = evaluateAnswer(
+          ans.user_answer,
+          question.kunci_jawaban,
+          question.tipe_soal
+        );
+
+        if (isCorrect) {
+          correctCount++;
+          totalScore += 2; // Sesuaikan bobot nilai
+        } else {
+          wrongCount++;
+        }
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      score: totalScore, 
+      correct: correctCount, 
+      wrong: wrongCount 
+    });
+  } catch (error) {
+    console.error('Error submitting exam:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
