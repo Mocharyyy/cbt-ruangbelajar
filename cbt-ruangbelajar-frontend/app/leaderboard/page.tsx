@@ -42,7 +42,6 @@ export default function LeaderboardPage() {
 
         {/* Header / Info */}
         <div className="text-center mb-10">
-          <h2 className="text-lg font-semibold text-emerald-100">Klasemen Hasil Ujian & Analisis Naïve Bayes</h2>
           <p className="text-xs text-emerald-200 mt-1">Diurutkan berdasarkan skor tertinggi dan waktu pengerjaan tercepat</p>
         </div>
 
