@@ -8,8 +8,6 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
 
  useEffect(() => {
-    // Gunakan '/api/leaderboard' jika backend dan frontend satu domain (Vercel)
-    // Atau ganti dengan URL backend online kamu jika terpisah (contoh: 'https://backend-kamu.railway.app/api/leaderboard')
     fetch('/api/leaderboard')
       .then((res) => res.json())
       .then((data) => {
