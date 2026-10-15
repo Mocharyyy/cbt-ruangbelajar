@@ -88,7 +88,7 @@ function ExamContent() {
   // 3. Helper Simpan Jawaban Ke Database
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
     try {
-      await fetch('http://localhost:5000/api/student/answer', {
+      await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/student/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -140,7 +140,7 @@ function ExamContent() {
         : 0;
 
      // Kirim hasil ke Backend
-    const response = await fetch('http://localhost:5000/api/exam/finish', {
+    const response = await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -345,19 +345,19 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
           <div>
             
             {/* Gambar Soal (Jika Ada) */}
-            {currentQ.image_url && currentQ.image_url.trim() !== '' && (
-              <div className="mb-6">
-                <img
-                  src={
-                    currentQ.image_url.startsWith('http')
-                      ? currentQ.image_url
-                      : `http://localhost:5000${currentQ.image_url}`
-                  }
-                  alt="Gambar Soal"
-                  className="max-h-72 object-contain rounded-lg border"
-                />
-              </div>
-            )}
+{currentQ.image_url && currentQ.image_url.trim() !== '' && (
+  <div className="mb-6">
+    <img
+      src={
+        currentQ.image_url.startsWith('http')
+          ? currentQ.image_url
+          : `https://cbt-ruangbelajar-backend.vercel.app${currentQ.image_url}`
+      }
+      alt="Gambar Soal"
+      className="max-h-72 object-contain rounded-lg border"
+    />
+  </div>
+)}
 
            {/* PERTANYAAN UTAMA (Sejajar rapi di samping nomor 1, tidak dobel, otomatis mengambil teks dari admin) */}
 <div className="text-base md:text-lg text-slate-800 font-medium mb-6 leading-relaxed flex items-start">
