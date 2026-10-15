@@ -405,55 +405,44 @@ app.get('/api/admin/questions', async (req, res) => {
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    // 1. Normalisasi data siswa (ubah ke array huruf/status baris yang bersih)
-    let sArr = [];
-    if (Array.isArray(studentAnswer)) {
-      sArr = studentAnswer.map(v => String(v).trim().toUpperCase());
-    } else if (typeof studentAnswer === 'object' && studentAnswer !== null) {
-      // Jika dari objek {A: true, B: true, C: false}, ambil key yang bernilai true/benar/b
-      sArr = Object.keys(studentAnswer).filter(k => {
-        const val = studentAnswer[k];
-        return val === true || val === 'true' || val === 'benar' || val === 'B' || val === 1;
-      }).map(v => v.toUpperCase());
-    } else if (typeof studentAnswer === 'string') {
-      sArr = studentAnswer.split(',').map(v => v.trim().toUpperCase());
-    }
-
-    // 2. Normalisasi kunci jawaban dari database
+    // 1. Ambil kunci jawaban dari database, misal "B,B,S" atau "B,B,S,B" jadikan array
     let cArr = [];
-    if (Array.isArray(correctAnswer)) {
+    if (typeof correctAnswer === 'string') {
+      cArr = correctAnswer.split(',').map(v => v.trim().toUpperCase());
+    } else if (Array.isArray(correctAnswer)) {
       cArr = correctAnswer.map(v => String(v).trim().toUpperCase());
-    } else if (typeof correctAnswer === 'object' && correctAnswer !== null) {
-      cArr = Object.keys(correctAnswer).filter(k => {
-        const val = correctAnswer[k];
-        return val === true || val === 'true' || val === 'benar' || val === 'B' || val === 1;
-      }).map(v => v.toUpperCase());
-    } else if (typeof correctAnswer === 'string') {
-      // Jika disimpan sebagai string koma "A,B" atau JSON string
-      if (correctAnswer.startsWith('{') || correctAnswer.startsWith('[')) {
-        const parsed = JSON.parse(correctAnswer);
-        if (Array.isArray(parsed)) {
-          cArr = parsed.map(v => String(v).trim().toUpperCase());
-        } else {
-          cArr = Object.keys(parsed).filter(k => parsed[k] === true || parsed[k] === 'true' || parsed[k] === 'B').map(v => v.toUpperCase());
-        }
-      } else {
-        cArr = correctAnswer.split(',').map(v => v.trim().toUpperCase());
-      }
     }
 
-    // 3. Bandingkan array jawaban siswa dan kunci jawaban secara persis (seperti pilihan ganda kompleks)
-    if (sArr.length > 0 || cArr.length > 0) {
-      const sSorted = [...sArr].sort();
-      const cSorted = [...cArr].sort();
-      if (sSorted.length !== cSorted.length) return false;
-      return sSorted.every((val, idx) => val === cSorted[idx]);
+    if (cArr.length === 0) {
+      return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
+    }
+
+    // 2. Ubah jawaban siswa menjadi array status per baris ('B' atau 'S')
+    // Hanya diambil sebanyak jumlah kunci jawaban yang ada (misal cArr cuma 3, maka ambil 3 pertama: A, B, C)
+    let sArr = [];
+    const keys = ['A', 'B', 'C', 'D', 'E'].slice(0, cArr.length);
+
+    if (typeof studentAnswer === 'object' && studentAnswer !== null && !Array.isArray(studentAnswer)) {
+      sArr = keys.map(k => {
+        const val = studentAnswer[k];
+        return (val === true || val === 'true' || val === 'B' || val === 1) ? 'B' : 'S';
+      });
+    } else if (Array.isArray(studentAnswer)) {
+      sArr = studentAnswer.slice(0, cArr.length).map(v => (v === true || v === 'B' || v === 'benar') ? 'B' : 'S');
+    } else if (typeof studentAnswer === 'string') {
+      sArr = studentAnswer.split(',').map(v => v.trim().toUpperCase()).slice(0, cArr.length);
+    }
+
+    // 3. Bandingkan urutan baris demi baris sesuai jumlah pernyataan yang ada
+    if (sArr.length > 0) {
+      if (sArr.length !== cArr.length) return false;
+      return sArr.every((val, idx) => val === cArr[idx]);
     }
   } catch (e) {
-    console.log("Error evaluate:", e.message);
+    console.log("Error evaluating true/false sequence:", e.message);
   }
 
-  // 4. Fallback untuk pilihan ganda biasa (single choice)
+  // Fallback untuk soal pilihan ganda biasa
   return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
