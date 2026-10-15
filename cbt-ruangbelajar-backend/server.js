@@ -632,22 +632,50 @@ app.post('/api/student/answer', async (req, res) => {
 
 app.post('/api/exam/finish', async (req, res) => {
   try {
-    const { student_exam_id, final_score } = req.body;
+    const { student_exam_id } = req.body;
 
-    // Pastikan nilai skor valid (fallback ke 0 jika tidak ada)
-    const skorAkhir = final_score !== undefined ? final_score : 0;
-    const status_kesiapan = skorAkhir >= 75 ? 'SIAP' : 'BELUM SIAP';
+    // 1. Ambil semua jawaban siswa dari database
+    const [studentAnswers] = await db.query(
+      'SELECT * FROM student_answers WHERE student_exam_id = ?',
+      [student_exam_id]
+    );
 
-    // Update data di tabel student_exams dengan aman
+    // 2. Ambil semua data soal dan kunci jawabannya
+    const [questions] = await db.query(
+      'SELECT id, correct_answer, question_type FROM questions'
+    );
+
+    let correctCount = 0;
+    let totalQuestions = questions.length > 0 ? questions.length : 50; // default 50 soal
+
+    // 3. Evaluasi otomatis jawaban siswa menggunakan fungsi evaluateAnswer
+    for (let ans of studentAnswers) {
+      const q = questions.find(item => item.id == ans.question_id);
+      if (q) {
+        // Ambil nilai jawaban (bisa dari kolom jawaban / answer_value)
+        const studentVal = ans.jawaban !== undefined ? ans.jawaban : ans.answer_value;
+        
+        const isTrue = evaluateAnswer(studentVal, q.correct_answer, q.question_type);
+        if (isTrue) {
+          correctCount++;
+        }
+      }
+    }
+
+    // 4. Hitung skor akhir secara akurat (skala 0 - 100)
+    const final_score = Math.round((correctCount / totalQuestions) * 100);
+    const status_kesiapan = final_score >= 75 ? 'SIAP' : 'BELUM SIAP';
+
+    // 5. Simpan ke database
     await db.query(
       `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
-      [skorAkhir, student_exam_id]
+      [final_score, student_exam_id]
     );
 
     return res.status(200).json({
       success: true,
-      message: 'Ujian berhasil diselesaikan',
-      final_score: skorAkhir,
+      message: 'Ujian selesai dan dinilai otomatis',
+      final_score: final_score,
       status_kesiapan: status_kesiapan
     });
   } catch (error) {
