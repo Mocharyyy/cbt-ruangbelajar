@@ -405,11 +405,11 @@ app.get('/api/admin/questions', async (req, res) => {
 // Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    // Parse JSON jika data masih berbentuk string
+    // Parse JSON jika data dari database atau frontend masih berupa string
     let correctObj = typeof correctAnswer === 'string' ? JSON.parse(correctAnswer) : correctAnswer;
     let studentObj = typeof studentAnswer === 'string' ? JSON.parse(studentAnswer) : studentAnswer;
 
-    // Helper untuk mengubah nilai boolean / string menjadi standar 'BENAR' atau 'SALAH'
+    // Normalisasi nilai jawaban agar seragam (true/benar/1 -> 'BENAR', false/salah/0 -> 'SALAH')
     const normalizeVal = (val) => {
       const v = String(val ?? '').trim().toLowerCase();
       if (v === 'true' || v === 'benar' || v === 'b' || v === '1') return 'BENAR';
@@ -417,26 +417,29 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
       return v.toUpperCase();
     };
 
-    // Jika jawaban berupa objek multi-pernyataan (seperti {A: false, B: true, C: false})
+    // Jika bentuknya objek (seperti {A: false, B: true, C: false} atau berbasis indeks angka)
     if (studentObj && correctObj && typeof studentObj === 'object' && typeof correctObj === 'object') {
-      const studentVals = Object.keys(studentObj).sort().map(k => normalizeVal(studentObj[k]));
-      const correctVals = Object.keys(correctObj).sort().map(k => normalizeVal(correctObj[k]));
+      const studentKeys = Object.keys(studentObj).sort();
+      const correctKeys = Object.keys(correctObj).sort();
 
-      if (studentVals.length !== correctVals.length) return false;
+      if (studentKeys.length !== correctKeys.length) return false;
 
-      // Bandingkan isi jawaban siswa dengan kunci jawaban per baris
-      for (let i = 0; i < studentVals.length; i++) {
-        if (studentVals[i] !== correctVals[i]) {
+      // Bandingkan baris demi baris secara berurutan
+      for (let i = 0; i < studentKeys.length; i++) {
+        const sVal = normalizeVal(studentObj[studentKeys[i]]);
+        const cVal = normalizeVal(correctObj[correctKeys[i]]);
+
+        if (sVal !== cVal) {
           return false;
         }
       }
       return true;
     }
   } catch (err) {
-    // Jika gagal parse, lanjut ke pencocokan teks biasa
+    // Jika gagal parse, lanjut ke perbandingan teks biasa
   }
 
-  // Pencocokan biasa untuk soal pilihan ganda 1 jawaban (A/B/C/D)
+  // Fallback untuk pilihan ganda biasa (single choice)
   return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
