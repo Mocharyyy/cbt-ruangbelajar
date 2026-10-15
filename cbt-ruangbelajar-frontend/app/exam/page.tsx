@@ -289,7 +289,9 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
 
   // Handler Benar/Salah
   const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
-    const prevObj = typeof currentAns === 'object' && !Array.isArray(currentAns) ? currentAns : {};
+    const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns) 
+      ? currentAns 
+      : {};
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
     setAnswers(updatedAnswers);
@@ -423,48 +425,60 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
             )}
 
             {/* C. TIPE TRUE / FALSE */}
-            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
-              <div className="overflow-x-auto my-4">
-                <table className="w-full border-collapse border border-slate-200">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 text-sm border-b">
-                      <th className="p-3 border-r text-left font-bold">Pernyataan</th>
-                      <th className="p-3 w-28 text-center font-bold">Benar</th>
-                      <th className="p-3 w-28 text-center font-bold">Salah</th>
+           {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
+            <div className="overflow-x-auto my-4">
+              <table className="w-full border-collapse border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-700 text-sm border-b">
+                    <th className="p-3 border-r text-left font-bold">Pernyataan</th>
+                    <th className="p-3 w-28 text-center font-bold">Benar</th>
+                    <th className="p-3 w-28 text-center font-bold">Salah</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {optionsList.map((opt) => (
+                    <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                      <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
+                      
+                      {/* Tombol Pilihan BENAR */}
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTrueFalse(opt.label, true)}
+                          className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                            currentAns?.[opt.label] === true 
+                              ? 'border-[#327ca6] bg-[#327ca6]' 
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {currentAns?.[opt.label] === true && (
+                            <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Tombol Pilihan SALAH */}
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTrueFalse(opt.label, false)}
+                          className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                            currentAns?.[opt.label] === false 
+                              ? 'border-[#327ca6] bg-[#327ca6]' 
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {currentAns?.[opt.label] === false && (
+                            <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                          )}
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {optionsList.map((opt) => (
-                      <tr key={opt.label} className="border-b hover:bg-slate-50/50">
-                        <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleTrueFalse(opt.label, true)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center ${
-                              currentAns?.[opt.label] === true ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300'
-                            }`}
-                          >
-                            {currentAns?.[opt.label] === true && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                          </button>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleTrueFalse(opt.label, false)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center ${
-                              currentAns?.[opt.label] === false ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300'
-                            }`}
-                          >
-                            {currentAns?.[opt.label] === false && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           </div>
         </div>
