@@ -36,13 +36,24 @@ export default function AdminDashboard() {
     Promise.all(
       baseExams.map(async (exam) => {
         try {
-          const res = await fetch(`http://localhost:5000/api/admin/questions?exam_id=${exam.examId}`);
+          const res = await fetch(`/api/admin/questions?exam_id=${exam.examId}`);
           const data = await res.json();
+          
+          let count = 0;
+          if (data.success && typeof data.total === 'number') {
+            count = data.total;
+          } else if (data.success && Array.isArray(data.questions)) {
+            count = data.questions.length;
+          } else if (Array.isArray(data)) {
+            count = data.length;
+          }
+
           return {
             ...exam,
-            questionCount: data.success ? data.total : 0,
+            questionCount: count,
           };
         } catch (err) {
+          console.error(`Gagal mengambil jumlah soal untuk exam_id ${exam.examId}:`, err);
           return { ...exam, questionCount: 0 };
         }
       })
