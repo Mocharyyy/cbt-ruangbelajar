@@ -26,12 +26,15 @@ export default function AdminQuestions() {
     setExamId(id);
 
     if (id) {
-      // 1. Ambil soal berdasarkan exam_id
-      fetch(`http://localhost:5000/api/admin/questions?exam_id=${id}`)
+      // 1. Ambil soal berdasarkan exam_id menggunakan relative path /api/...
+      fetch(`/api/admin/questions?exam_id=${id}`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.success) {
-            setQuestions(data.questions || []);
+          // Menyesuaikan dengan format objek { success, questions } ataupun array langsung
+          if (data.success && Array.isArray(data.questions)) {
+            setQuestions(data.questions);
+          } else if (Array.isArray(data)) {
+            setQuestions(data);
           }
           setLoading(false);
         })
@@ -40,12 +43,13 @@ export default function AdminQuestions() {
           setLoading(false);
         });
 
-      // 2. Ambil judul ujian asli langsung dari database melalui backend /api/exams
-      fetch(`http://localhost:5000/api/exams`)
+      // 2. Ambil judul ujian asli dari database melalui backend /api/exams
+      fetch(`/api/exams`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.success && data.exams) {
-            const currentExam = data.exams.find((e: any) => e.id == id);
+          const examsList = data.exams || data;
+          if (Array.isArray(examsList)) {
+            const currentExam = examsList.find((e: any) => e.id == id);
             if (currentExam) {
               setExamTitle(currentExam.judul_ujian || currentExam.mapel);
             } else {
@@ -62,16 +66,16 @@ export default function AdminQuestions() {
     }
   }, []);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (questionId: number) => {
     if (!confirm('Yakin ingin menghapus soal ini?')) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/questions/${id}`, {
+      const res = await fetch(`/api/admin/questions/${questionId}`, {
         method: 'DELETE',
       });
       const data = await res.json();
       if (data.success) {
-        setQuestions((prev) => prev.filter((q) => q.id !== id));
+        setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       } else {
         alert('Gagal menghapus soal');
       }

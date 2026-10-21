@@ -222,7 +222,7 @@ app.post('/api/admin/upload', upload.single('image'), (req, res) => {
   res.json({ success: true, imageUrl });
 });
 
-// 2. Tambah Soal Baru (POST) - DIPERBAIKI
+// 2. Tambah Soal Baru (POST) 
 app.post('/api/admin/questions', async (req, res) => {
   try {
     const { 
