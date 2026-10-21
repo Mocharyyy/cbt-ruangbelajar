@@ -1,20 +1,31 @@
 import { NextResponse } from 'next/server';
-// Impor koneksi database Anda di sini (misalnya mysql2 pool)
-// import db from '@/lib/db'; 
+import mysql from 'mysql2/promise';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const examId = searchParams.get('exam_id');
 
-    // Contoh query database langsung di Next.js API Route
-    // const [rows] = await db.query('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+    const connection = await mysql.createConnection(
+      process.env.DATABASE_URL || 
+      `mysql://${process.env.DB_USER || 'avnadmin'}:${process.env.DB_PASSWORD || 'AVNS_mTGopbq0kqJh5NO8OPg'}@${process.env.DB_HOST || 'mysql-a275b87-cbt-ruangbelajar.h.aivencloud.com'}:${process.env.DB_PORT || 23298}/${process.env.DB_NAME || 'defaultdb'}?ssl-mode=REQUIRED`
+    );
 
-    return NextResponse.json({
-      success: true,
-      questions: [] // masukkan hasil rows database di sini
-    });
+    let query = 'SELECT * FROM questions';
+    let params: any[] = [];
+
+    // Jika ada parameter exam_id, filter berdasarkan exam_id
+    if (examId) {
+      query += ' WHERE exam_id = ?';
+      params.push(examId);
+    }
+
+    const [rows] = await connection.query(query, params);
+    await connection.end();
+
+    // Kembalikan data dalam format array langsung agar terbaca oleh frontend
+    return NextResponse.json(rows);
   } catch (error: any) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

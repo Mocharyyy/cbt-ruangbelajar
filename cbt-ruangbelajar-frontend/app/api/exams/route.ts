@@ -11,8 +11,8 @@ export async function GET() {
     const [rows] = await connection.query('SELECT * FROM exams');
     await connection.end();
 
-    return NextResponse.json(rows);
+    return NextResponse.json({ success: true, data: rows });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
