@@ -44,7 +44,7 @@ export default function AdminQuestions() {
         });
 
       // 2. Ambil judul ujian asli dari database melalui backend /api/exams
-      fetch(`/api/exams`)
+      fetch('/api/admin/exams')
         .then((res) => res.json())
         .then((data) => {
           const examsList = data.exams || data;
