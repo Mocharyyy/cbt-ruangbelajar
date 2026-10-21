@@ -27,7 +27,7 @@ export default function AdminQuestions() {
 
     if (id) {
       // 1. Ambil soal berdasarkan exam_id menggunakan relative path /api/...
-      fetch(`/api/admin/questions?exam_id=${id}`)
+      fetch(`/api/questions?exam_id=${id}`)
         .then((res) => res.json())
         .then((data) => {
           // Menyesuaikan dengan format objek { success, questions } ataupun array langsung
