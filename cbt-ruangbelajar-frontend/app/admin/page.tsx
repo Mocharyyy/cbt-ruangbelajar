@@ -36,7 +36,7 @@ export default function AdminDashboard() {
     Promise.all(
       baseExams.map(async (exam) => {
         try {
-          const res = await fetch(`/api/admin/questions?exam_id=${exam.examId}`);
+          const res = await fetch(`/api/questions?exam_id=${exam.examId}`);
           const data = await res.json();
           
           let count = 0;
