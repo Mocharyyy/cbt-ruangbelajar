@@ -26,15 +26,18 @@ export default function AdminQuestions() {
     setExamId(id);
 
     if (id) {
-      // 1. Ambil soal berdasarkan exam_id menggunakan relative path /api/...
+      // 1. Ambil daftar soal berdasarkan exam_id
       fetch(`/api/questions?exam_id=${id}`)
         .then((res) => res.json())
         .then((data) => {
-          // Menyesuaikan dengan format objek { success, questions } ataupun array langsung
           if (data.success && Array.isArray(data.questions)) {
             setQuestions(data.questions);
           } else if (Array.isArray(data)) {
             setQuestions(data);
+          } else if (Array.isArray(data.data)) {
+            setQuestions(data.data);
+          } else {
+            setQuestions([]);
           }
           setLoading(false);
         })
@@ -43,15 +46,17 @@ export default function AdminQuestions() {
           setLoading(false);
         });
 
-      // 2. Ambil judul ujian asli dari database melalui backend /api/exams
-      fetch('/api/admin/exams')
+      // 2. Ambil informasi nama ujian dari database (/api/exams)
+      fetch('/api/exams')
         .then((res) => res.json())
         .then((data) => {
-          const examsList = data.exams || data;
+          const examsList = Array.isArray(data) ? data : (data.exams || data.data || []);
           if (Array.isArray(examsList)) {
-            const currentExam = examsList.find((e: any) => e.id == id);
+            const currentExam = examsList.find(
+              (e: any) => String(e.id) === String(id) || String(e.exam_id) === String(id)
+            );
             if (currentExam) {
-              setExamTitle(currentExam.judul_ujian || currentExam.mapel);
+              setExamTitle(currentExam.judul_ujian || currentExam.mapel || currentExam.title || 'Ujian');
             } else {
               setExamTitle('Ujian Tidak Ditemukan');
             }
@@ -66,21 +71,31 @@ export default function AdminQuestions() {
     }
   }, []);
 
+  // Fungsi Hapus Soal
   const handleDelete = async (questionId: number) => {
     if (!confirm('Yakin ingin menghapus soal ini?')) return;
 
     try {
-      const res = await fetch(`/api/admin/questions/${questionId}`, {
+      // Menggunakan query params /api/questions?id=... agar aman dari 404
+      const res = await fetch(`/api/questions?id=${questionId}`, {
         method: 'DELETE',
       });
       const data = await res.json();
-      if (data.success) {
+
+      if (res.ok && (data.success || data.message)) {
         setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       } else {
-        alert('Gagal menghapus soal');
+        // Fallback jika API hapus menggunakan /api/questions/ID
+        const res2 = await fetch(`/api/questions/${questionId}`, { method: 'DELETE' });
+        if (res2.ok) {
+          setQuestions((prev) => prev.filter((q) => q.id !== questionId));
+        } else {
+          alert('Gagal menghapus soal.');
+        }
       }
     } catch (err) {
       console.error('Error delete:', err);
+      alert('Terjadi kesalahan saat menghapus.');
     }
   };
 
@@ -136,7 +151,7 @@ export default function AdminQuestions() {
         ) : (
           <div className="space-y-4">
             {questions.map((q, index) => (
-              <div key={q.id} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between">
+              <div key={q.id || index} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between">
                 <div>
                   <div className="flex items-center space-x-2 mb-2">
                     <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded">
