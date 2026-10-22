@@ -375,6 +375,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
 
               return (
                 <div className="space-y-4">
+                  
                   {/* A. TIPE SINGLE CHOICE */}
                   {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
                     <div className="space-y-3 pl-2">
@@ -385,14 +386,25 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                         let badgeLabel = null;
 
                         if (isReviewMode) {
-                          if (String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase()) {
+                          const isUserChoice = String(opt.label).trim().toUpperCase() === String(currentAns).trim().toUpperCase();
+                          const isKeyChoice = String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase();
+                          const userIsWrong = String(currentAns).trim().toUpperCase() !== String(keyAns).trim().toUpperCase();
+
+                          if (isKeyChoice && userIsWrong) {
+                            // Siswa salah -> Kunci benar dimunculkan HIJAU
                             bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
                             optionStyle = "border-emerald-500 bg-emerald-500";
                             badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Kunci Benar</span>;
-                          } else if (String(opt.label).trim().toUpperCase() === String(currentAns).trim().toUpperCase()) {
+                          } else if (isUserChoice && userIsWrong) {
+                            // Siswa salah -> Pilihan siswa dimunculkan MERAH
                             bgCardStyle = "bg-rose-50 border-rose-500 text-rose-900 font-bold";
                             optionStyle = "border-rose-500 bg-rose-500";
                             badgeLabel = <span className="ml-auto text-xs bg-rose-500 text-white px-3 py-1 rounded-full font-semibold">Pilihan Kamu (Salah)</span>;
+                          } else if (isUserChoice && !userIsWrong) {
+                            // Siswa benar -> Cukup hijau, TANPA warna merah
+                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
+                            optionStyle = "border-emerald-500 bg-emerald-500";
+                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Jawaban Kamu (Benar)</span>;
                           }
                         } else if (isSelected) {
                           optionStyle = "border-[#327ca6] bg-[#327ca6]";
@@ -408,7 +420,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                             className={`flex items-center p-3.5 rounded-xl border-2 transition-all ${isReviewMode ? 'cursor-default' : 'cursor-pointer'} ${bgCardStyle}`}
                           >
                             <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all mr-3 ${optionStyle}`}>
-                              {(isSelected || (isReviewMode && String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase())) && (
+                              {(isSelected || (isReviewMode && String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase() && String(currentAns).trim().toUpperCase() !== String(keyAns).trim().toUpperCase())) && (
                                 <div className="w-2 h-2 rounded-full bg-white" />
                               )}
                             </div>
@@ -437,15 +449,25 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                         if (isReviewMode) {
                           const isKeyMatch = keyList.map(k => String(k).trim().toUpperCase()).includes(String(opt.label).trim().toUpperCase());
                           const isUserMatch = list.map(u => String(u).trim().toUpperCase()).includes(String(opt.label).trim().toUpperCase());
+                          
+                          // Cek apakah jawaban multiple siswa secara keseluruhan benar atau ada yang meleset
+                          const isAllCorrect = keyList.length === list.length && keyList.every(k => list.includes(k));
 
-                          if (isKeyMatch) {
+                          if (isKeyMatch && !isAllCorrect) {
+                            // Ada yang salah -> Kunci yang belum terpilih dimunculkan HIJAU
                             bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
                             optionStyle = "border-emerald-500 bg-emerald-500";
                             badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Kunci Benar</span>;
-                          } else if (isUserMatch) {
+                          } else if (isUserMatch && !isAllCorrect) {
+                            // Pilihan siswa yang meleset/salah -> MERAH
                             bgCardStyle = "bg-rose-50 border-rose-500 text-rose-900 font-bold";
                             optionStyle = "border-rose-500 bg-rose-500";
                             badgeLabel = <span className="ml-auto text-xs bg-rose-500 text-white px-3 py-1 rounded-full font-semibold">Pilihan Kamu (Salah)</span>;
+                          } else if (isUserMatch && isAllCorrect) {
+                            // Siswa benar semua -> HIJAU tanpa merah
+                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
+                            optionStyle = "border-emerald-500 bg-emerald-500";
+                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Jawaban Kamu (Benar)</span>;
                           }
                         } else if (isChecked) {
                           optionStyle = "border-[#327ca6] bg-[#327ca6]";
@@ -492,11 +514,13 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                           {optionsList.map((opt) => {
                             const userChoice = currentAns?.[opt.label];
                             const correctChoice = keyAns?.[opt.label];
+                            const isRowWrong = userChoice !== correctChoice;
 
                             return (
                               <tr key={opt.label} className="border-b hover:bg-slate-50/50">
                                 <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
                                 
+                                {/* Tombol Pilihan BENAR */}
                                 <td className="p-3 text-center">
                                   <button
                                     type="button"
@@ -504,22 +528,25 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                                     onClick={() => handleTrueFalse(opt.label, true)}
                                     className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
                                       isReviewMode
-                                        ? correctChoice === true
-                                          ? 'border-emerald-500 bg-emerald-500'
-                                          : userChoice === true
-                                          ? 'border-rose-500 bg-rose-500'
+                                        ? isRowWrong && correctChoice === true
+                                          ? 'border-emerald-500 bg-emerald-500' // Kunci benar (hijau) jika siswa salah
+                                          : userChoice === true && isRowWrong
+                                          ? 'border-rose-500 bg-rose-500'     // Pilihan siswa salah (merah)
+                                          : userChoice === true && !isRowWrong
+                                          ? 'border-emerald-500 bg-emerald-500' // Siswa sudah benar (hijau) tanpa merah
                                           : 'border-slate-300 bg-white'
                                         : userChoice === true 
                                         ? 'border-[#327ca6] bg-[#327ca6]' 
                                         : 'border-slate-300 bg-white'
                                     }`}
                                   >
-                                    {(userChoice === true || (isReviewMode && correctChoice === true)) && (
+                                    {((userChoice === true) || (isReviewMode && isRowWrong && correctChoice === true)) && (
                                       <div className="w-2.5 h-2.5 rounded-full bg-white" />
                                     )}
                                   </button>
                                 </td>
 
+                                {/* Tombol Pilihan SALAH */}
                                 <td className="p-3 text-center">
                                   <button
                                     type="button"
@@ -527,17 +554,19 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                                     onClick={() => handleTrueFalse(opt.label, false)}
                                     className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
                                       isReviewMode
-                                        ? correctChoice === false
-                                          ? 'border-emerald-500 bg-emerald-500'
-                                          : userChoice === false
-                                          ? 'border-rose-500 bg-rose-500'
+                                        ? isRowWrong && correctChoice === false
+                                          ? 'border-emerald-500 bg-emerald-500' // Kunci benar (hijau) jika siswa salah
+                                          : userChoice === false && isRowWrong
+                                          ? 'border-rose-500 bg-rose-500'     // Pilihan siswa salah (merah)
+                                          : userChoice === false && !isRowWrong
+                                          ? 'border-emerald-500 bg-emerald-500' // Siswa sudah benar (hijau) tanpa merah
                                           : 'border-slate-300 bg-white'
                                         : userChoice === false 
                                         ? 'border-[#327ca6] bg-[#327ca6]' 
                                         : 'border-slate-300 bg-white'
                                     }`}
                                   >
-                                    {(userChoice === false || (isReviewMode && correctChoice === false)) && (
+                                    {((userChoice === false) || (isReviewMode && isRowWrong && correctChoice === false)) && (
                                       <div className="w-2.5 h-2.5 rounded-full bg-white" />
                                     )}
                                   </button>
@@ -549,6 +578,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                       </table>
                     </div>
                   )}
+
                 </div>
               );
             })()
