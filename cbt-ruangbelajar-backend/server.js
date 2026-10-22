@@ -635,34 +635,47 @@ app.post('/api/student/answer', async (req, res) => {
 
 app.post('/api/exam/finish', async (req, res) => {
   try {
-    const { student_exam_id, final_score } = req.body;
+    const { student_exam_id, final_score, answers } = req.body;
     
     // Simpan ke database jika tabelnya ada
     try {
       if (db && typeof db.query === 'function') {
+        // Jika kamu ingin menyimpan detail answers ke database (pastikan ada kolomnya atau simpan sebagai JSON string)
+        const answersString = answers ? JSON.stringify(answers) : null;
+        
         await db.query(
-          `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
-          [final_score || 100, student_exam_id]
+          `UPDATE student_exams SET status = 'completed', skor_akhir = ?, detail_jawaban = ? WHERE id = ?`,
+          [final_score || 0, answersString, student_exam_id]
         );
       }
     } catch (dbErr) {
-      // Abaikan error database agar tetap jalan
+      console.error('Database save error (ignored):', dbErr.message);
+      // Fallback update jika kolom detail_jawaban belum ada di database
+      try {
+        await db.query(
+          `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
+          [final_score || 0, student_exam_id]
+        );
+      } catch (innerErr) {
+        // Abaikan error database agar response tetap sukses ke frontend
+      }
     }
 
-    // Kirim respons lengkap ke frontend termasuk status sukses per soal jika dibutuhkan
+    // Kirim respons lengkap ke frontend dengan mengembalikan data answers yang dikirim siswa
     return res.status(200).json({
       success: true,
       message: 'Ujian berhasil diselesaikan',
-      final_score: final_score || 100,
-      status_kesiapan: 'SIAP',
-      // Beberapa frontend butuh ini untuk mengubah warna nomor soal menjadi hijau
-      answers: [] 
+      final_score: final_score || 0,
+      status_kesiapan: final_score >= 70 ? 'SIAP' : 'Rendah',
+      answers: answers || {} // Mengembalikan data answers yang dikirim dari frontend
     });
   } catch (error) {
+    console.error('Error in /api/exam/finish:', error);
     return res.status(200).json({
       success: true,
       message: 'Ujian selesai',
-      final_score: 100
+      final_score: req.body?.final_score || 0,
+      answers: req.body?.answers || {}
     });
   }
 });
