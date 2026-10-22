@@ -63,7 +63,9 @@ function ExamContent() {
 
   // 2. Timer Running & Auto Finish saat habis
   useEffect(() => {
-    if (!isExamStarted) return;
+    // Jika ujian belum dimulai ATAU modal hasil ujian sudah terbuka, hentikan timer
+    if (!isExamStarted || isResultModalOpen) return;
+
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -74,8 +76,9 @@ function ExamContent() {
         return prev - 1;
       });
     }, 1000);
+
     return () => clearInterval(timer);
-  }, [isExamStarted, answers, questions]);
+  }, [isExamStarted, isResultModalOpen]);
 
   // Format Waktu (HH:MM:SS)
   const formatTime = (seconds: number) => {
