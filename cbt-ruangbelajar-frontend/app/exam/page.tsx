@@ -109,27 +109,49 @@ function ExamContent() {
 
     try {
       let correctCount = 0;
+      const ansObj = answers as Record<string, any>;
 
-      questions.forEach((q) => {
-        const userAns = answers[q.id];
+      questions.forEach((q: any) => {
+        const userAns = ansObj[q.id];
         const key = q.kunci_jawaban;
 
-        if (!userAns) return;
+        if (userAns === undefined || userAns === null || userAns === '') return;
 
         const tipe = (q.tipe_soal || 'single').toLowerCase();
 
         if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
-          if (String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase()) {
+          const cleanUserAns = String(userAns).trim().toUpperCase();
+          const cleanKey = String(key).trim().toUpperCase();
+
+          if (cleanUserAns === cleanKey) {
             correctCount++;
           }
         } else if (tipe === 'multiple' || tipe === 'multiple_choice') {
-          const userArr = Array.isArray(userAns) ? userAns.sort() : [];
-          const keyArr = Array.isArray(key) ? key.sort() : [];
-          if (JSON.stringify(userArr) === JSON.stringify(keyArr)) {
+          const userArr = Array.isArray(userAns) 
+            ? userAns.map((a: any) => String(a).trim().toUpperCase()).sort() 
+            : [];
+          const keyArr = Array.isArray(key) 
+            ? key.map((k: any) => String(k).trim().toUpperCase()).sort() 
+            : [];
+
+          if (userArr.length > 0 && JSON.stringify(userArr) === JSON.stringify(keyArr)) {
             correctCount++;
           }
         } else if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
-          if (JSON.stringify(userAns) === JSON.stringify(key)) {
+          if (typeof userAns === 'object' && typeof key === 'object' && userAns !== null && key !== null) {
+            const sortedUser = Object.keys(userAns).sort().reduce((acc: Record<string, any>, k) => {
+              acc[k] = (userAns as Record<string, any>)[k];
+              return acc;
+            }, {});
+            const sortedKey = Object.keys(key).sort().reduce((acc: Record<string, any>, k) => {
+              acc[k] = (key as Record<string, any>)[k];
+              return acc;
+            }, {});
+
+            if (JSON.stringify(sortedUser) === JSON.stringify(sortedKey)) {
+              correctCount++;
+            }
+          } else if (String(userAns).trim().toLowerCase() === String(key).trim().toLowerCase()) {
             correctCount++;
           }
         }
@@ -139,43 +161,34 @@ function ExamContent() {
         ? Math.round((correctCount / questions.length) * 100) 
         : 0;
 
-     // Kirim hasil ke Backend
-    const response = await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        student_exam_id: Number(studentExamId),
-        final_score: calculatedScore,
-      }),
-    });
-
-    // 1. Cek terlebih dahulu apakah response status OK (HTTP 200-299)
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Server error response:', errorText);
-      throw new Error(`Server mengembalikan status ${response.status}`);
-    }
-
-    // 2. Jika OK, baru aman melakukan .json()
-    const result = await response.json();
-
-    if (result.success) {
-      // GANTI alert(...) DENGAN POP-UP HASIL UJIAN CUSTOM
-      setExamResultData({
-        score: calculatedScore,
-        status: result.status_kesiapan || 'Rendah',
+      const response = await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_exam_id: Number(studentExamId),
+          final_score: calculatedScore,
+          answers: answers,
+        }),
       });
-      setIsResultModalOpen(true);
-    } else {
-      alert('Gagal mengakhiri ujian: ' + (result.message || 'Terjadi kesalahan pada server'));
+
+      const result = await response.json();
+
+      if (result.success) {
+        setExamResultData({
+          score: calculatedScore,
+          status: result.status_kesiapan || 'Rendah',
+        });
+      } else {
+        alert('Gagal menyimpan hasil ujian: ' + (result.message || 'Error server'));
+      }
+
+    } catch (error) {
+      console.error('Error saat menyelesaikan ujian:', error);
+      alert('Terjadi kesalahan koneksi saat menyelesaikan ujian.');
+    } finally {
+      setIsSubmitting(false);
     }
-  } catch (error: any) {
-    console.error('Error saat menyelesaikan ujian:', error);
-    alert('Terjadi kesalahan koneksi/server saat mengirim jawaban: ' + error.message);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
 if (loading) {
   return (
