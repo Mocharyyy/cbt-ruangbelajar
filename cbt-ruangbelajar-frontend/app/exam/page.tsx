@@ -367,223 +367,117 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
   </div>
 </div>
 
-            {/* Variabel Penanda Mode Review Pembahasan */}
-          {
-            (() => {
-              const isReviewMode = !isResultModalOpen && !showDiscussionModal && examResultData !== null;
-              const keyAns = currentQ?.kunci_jawaban || currentQ?.kunciJawaban;
+            {/* A. TIPE SINGLE CHOICE */}
+            {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
+              <div className="space-y-3 pl-2">
+                {optionsList.map((opt) => {
+                  const isSelected = currentAns === opt.label;
+                  return (
+                    <div
+                      key={opt.label}
+                      onClick={() => handleSingleChoice(opt.label)}
+                      className="flex items-start gap-3 cursor-pointer group py-1"
+                    >
+                      <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                        isSelected ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
+                      }`}>
+                        {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+                      </div>
+                      <span className="text-sm md:text-base text-slate-700 leading-snug">
+                        {opt.text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-              return (
-                <div className="space-y-4">
-                  
-                  {/* A. TIPE SINGLE CHOICE */}
-                  {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
-                    <div className="space-y-3 pl-2">
-                      {optionsList.map((opt) => {
-                        const isSelected = currentAns === opt.label;
-                        let optionStyle = "border-slate-300 bg-white group-hover:border-slate-400";
-                        let bgCardStyle = "bg-white border-slate-200 text-slate-700";
-                        let badgeLabel = null;
+            {/* B. TIPE MULTIPLE CHOICE */}
+            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
+              <div className="space-y-3 pl-2">
+                {optionsList.map((opt) => {
+                  const list = Array.isArray(currentAns) ? currentAns : [];
+                  const isChecked = list.includes(opt.label);
+                  return (
+                    <div
+                      key={opt.label}
+                      onClick={() => handleMultipleChoice(opt.label)}
+                      className="flex items-start gap-3 cursor-pointer group py-1"
+                    >
+                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                        isChecked ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
+                      }`}>
+                        {isChecked && (
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-sm md:text-base text-slate-700 leading-snug">
+                        {opt.text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-                        if (isReviewMode) {
-                          const isUserChoice = String(opt.label).trim().toUpperCase() === String(currentAns).trim().toUpperCase();
-                          const isKeyChoice = String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase();
-                          const userIsWrong = String(currentAns).trim().toUpperCase() !== String(keyAns).trim().toUpperCase();
-
-                          if (isKeyChoice && userIsWrong) {
-                            // Siswa salah -> Kunci benar dimunculkan HIJAU
-                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
-                            optionStyle = "border-emerald-500 bg-emerald-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Kunci Benar</span>;
-                          } else if (isUserChoice && userIsWrong) {
-                            // Siswa salah -> Pilihan siswa dimunculkan MERAH
-                            bgCardStyle = "bg-rose-50 border-rose-500 text-rose-900 font-bold";
-                            optionStyle = "border-rose-500 bg-rose-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-rose-500 text-white px-3 py-1 rounded-full font-semibold">Pilihan Kamu (Salah)</span>;
-                          } else if (isUserChoice && !userIsWrong) {
-                            // Siswa benar -> Cukup hijau, TANPA warna merah
-                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
-                            optionStyle = "border-emerald-500 bg-emerald-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Jawaban Kamu (Benar)</span>;
-                          }
-                        } else if (isSelected) {
-                          optionStyle = "border-[#327ca6] bg-[#327ca6]";
-                          bgCardStyle = "bg-sky-50 border-sky-400 text-sky-900";
-                        }
-
-                        return (
-                          <div
-                            key={opt.label}
-                            onClick={() => {
-                              if (!isReviewMode) handleSingleChoice(opt.label);
-                            }}
-                            className={`flex items-center p-3.5 rounded-xl border-2 transition-all ${isReviewMode ? 'cursor-default' : 'cursor-pointer'} ${bgCardStyle}`}
+            {/* C. TIPE TRUE / FALSE */}
+            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
+              <div className="overflow-x-auto my-4">
+                <table className="w-full border-collapse border border-slate-200">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 text-sm border-b">
+                      <th className="p-3 border-r text-left font-bold">Pernyataan</th>
+                      <th className="p-3 w-28 text-center font-bold">Benar</th>
+                      <th className="p-3 w-28 text-center font-bold">Salah</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {optionsList.map((opt) => (
+                      <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                        <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
+                        
+                        {/* Tombol Pilihan BENAR */}
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleTrueFalse(opt.label, true)}
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                              currentAns?.[opt.label] === true 
+                                ? 'border-[#327ca6] bg-[#327ca6]' 
+                                : 'border-slate-300 bg-white'
+                            }`}
                           >
-                            <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all mr-3 ${optionStyle}`}>
-                              {(isSelected || (isReviewMode && String(opt.label).trim().toUpperCase() === String(keyAns).trim().toUpperCase() && String(currentAns).trim().toUpperCase() !== String(keyAns).trim().toUpperCase())) && (
-                                <div className="w-2 h-2 rounded-full bg-white" />
-                              )}
-                            </div>
-                            <span className="text-sm md:text-base leading-snug flex-1">
-                              {opt.text}
-                            </span>
-                            {badgeLabel}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                            {currentAns?.[opt.label] === true && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                            )}
+                          </button>
+                        </td>
 
-                  {/* B. TIPE MULTIPLE CHOICE */}
-                  {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
-                    <div className="space-y-3 pl-2">
-                      {optionsList.map((opt) => {
-                        const list = Array.isArray(currentAns) ? currentAns : [];
-                        const isChecked = list.includes(opt.label);
-                        const keyList = Array.isArray(keyAns) ? keyAns : [keyAns];
-
-                        let optionStyle = "border-slate-300 bg-white group-hover:border-slate-400";
-                        let bgCardStyle = "bg-white border-slate-200 text-slate-700";
-                        let badgeLabel = null;
-
-                        if (isReviewMode) {
-                          const isKeyMatch = keyList.map(k => String(k).trim().toUpperCase()).includes(String(opt.label).trim().toUpperCase());
-                          const isUserMatch = list.map(u => String(u).trim().toUpperCase()).includes(String(opt.label).trim().toUpperCase());
-                          
-                          // Cek apakah jawaban multiple siswa secara keseluruhan benar atau ada yang meleset
-                          const isAllCorrect = keyList.length === list.length && keyList.every(k => list.includes(k));
-
-                          if (isKeyMatch && !isAllCorrect) {
-                            // Ada yang salah -> Kunci yang belum terpilih dimunculkan HIJAU
-                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
-                            optionStyle = "border-emerald-500 bg-emerald-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Kunci Benar</span>;
-                          } else if (isUserMatch && !isAllCorrect) {
-                            // Pilihan siswa yang meleset/salah -> MERAH
-                            bgCardStyle = "bg-rose-50 border-rose-500 text-rose-900 font-bold";
-                            optionStyle = "border-rose-500 bg-rose-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-rose-500 text-white px-3 py-1 rounded-full font-semibold">Pilihan Kamu (Salah)</span>;
-                          } else if (isUserMatch && isAllCorrect) {
-                            // Siswa benar semua -> HIJAU tanpa merah
-                            bgCardStyle = "bg-emerald-50 border-emerald-500 text-emerald-900 font-bold";
-                            optionStyle = "border-emerald-500 bg-emerald-500";
-                            badgeLabel = <span className="ml-auto text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">Jawaban Kamu (Benar)</span>;
-                          }
-                        } else if (isChecked) {
-                          optionStyle = "border-[#327ca6] bg-[#327ca6]";
-                          bgCardStyle = "bg-sky-50 border-sky-400 text-sky-900";
-                        }
-
-                        return (
-                          <div
-                            key={opt.label}
-                            onClick={() => {
-                              if (!isReviewMode) handleMultipleChoice(opt.label);
-                            }}
-                            className={`flex items-center p-3.5 rounded-xl border-2 transition-all ${isReviewMode ? 'cursor-default' : 'cursor-pointer'} ${bgCardStyle}`}
+                        {/* Tombol Pilihan SALAH */}
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleTrueFalse(opt.label, false)}
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                              currentAns?.[opt.label] === false 
+                                ? 'border-[#327ca6] bg-[#327ca6]' 
+                                : 'border-slate-300 bg-white'
+                            }`}
                           >
-                            <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all mr-3 ${optionStyle}`}>
-                              {(isChecked || (isReviewMode && Array.isArray(keyList) && keyList.includes(opt.label))) && (
-                                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </div>
-                            <span className="text-sm md:text-base leading-snug flex-1">
-                              {opt.text}
-                            </span>
-                            {badgeLabel}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* C. TIPE TRUE / FALSE */}
-                  {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
-                    <div className="overflow-x-auto my-4">
-                      <table className="w-full border-collapse border border-slate-200">
-                        <thead>
-                          <tr className="bg-slate-50 text-slate-700 text-sm border-b">
-                            <th className="p-3 border-r text-left font-bold">Pernyataan</th>
-                            <th className="p-3 w-28 text-center font-bold">Benar</th>
-                            <th className="p-3 w-28 text-center font-bold">Salah</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {optionsList.map((opt) => {
-                            const userChoice = currentAns?.[opt.label];
-                            const correctChoice = keyAns?.[opt.label];
-                            const isRowWrong = userChoice !== correctChoice;
-
-                            return (
-                              <tr key={opt.label} className="border-b hover:bg-slate-50/50">
-                                <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
-                                
-                                {/* Tombol Pilihan BENAR */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    disabled={isReviewMode}
-                                    onClick={() => handleTrueFalse(opt.label, true)}
-                                    className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
-                                      isReviewMode
-                                        ? isRowWrong && correctChoice === true
-                                          ? 'border-emerald-500 bg-emerald-500' // Kunci benar (hijau) jika siswa salah
-                                          : userChoice === true && isRowWrong
-                                          ? 'border-rose-500 bg-rose-500'     // Pilihan siswa salah (merah)
-                                          : userChoice === true && !isRowWrong
-                                          ? 'border-emerald-500 bg-emerald-500' // Siswa sudah benar (hijau) tanpa merah
-                                          : 'border-slate-300 bg-white'
-                                        : userChoice === true 
-                                        ? 'border-[#327ca6] bg-[#327ca6]' 
-                                        : 'border-slate-300 bg-white'
-                                    }`}
-                                  >
-                                    {((userChoice === true) || (isReviewMode && isRowWrong && correctChoice === true)) && (
-                                      <div className="w-2.5 h-2.5 rounded-full bg-white" />
-                                    )}
-                                  </button>
-                                </td>
-
-                                {/* Tombol Pilihan SALAH */}
-                                <td className="p-3 text-center">
-                                  <button
-                                    type="button"
-                                    disabled={isReviewMode}
-                                    onClick={() => handleTrueFalse(opt.label, false)}
-                                    className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
-                                      isReviewMode
-                                        ? isRowWrong && correctChoice === false
-                                          ? 'border-emerald-500 bg-emerald-500' // Kunci benar (hijau) jika siswa salah
-                                          : userChoice === false && isRowWrong
-                                          ? 'border-rose-500 bg-rose-500'     // Pilihan siswa salah (merah)
-                                          : userChoice === false && !isRowWrong
-                                          ? 'border-emerald-500 bg-emerald-500' // Siswa sudah benar (hijau) tanpa merah
-                                          : 'border-slate-300 bg-white'
-                                        : userChoice === false 
-                                        ? 'border-[#327ca6] bg-[#327ca6]' 
-                                        : 'border-slate-300 bg-white'
-                                    }`}
-                                  >
-                                    {((userChoice === false) || (isReviewMode && isRowWrong && correctChoice === false)) && (
-                                      <div className="w-2.5 h-2.5 rounded-full bg-white" />
-                                    )}
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                </div>
-              );
-            })()
-          }
-
+                            {currentAns?.[opt.label] === false && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
           </div>
         </div>
       </main>
