@@ -113,12 +113,24 @@ function ExamContent() {
 
       questions.forEach((q: any) => {
         const userAns = ansObj[q.id];
-        const key = q.kunci_jawaban;
+        let key = q.kunci_jawaban;
 
+        // Jika siswa tidak menjawab, lewati
         if (userAns === undefined || userAns === null || userAns === '') return;
+
+        // Auto-parse jika kunci jawaban dari database tersimpan sebagai string JSON (misal: "['A', 'B']" atau '["A"]')
+        if (typeof key === 'string') {
+          try {
+            const parsed = JSON.parse(key);
+            if (parsed) key = parsed;
+          } catch (e) {
+            // Biarkan tetap string jika bukan JSON
+          }
+        }
 
         const tipe = (q.tipe_soal || 'single').toLowerCase();
 
+        // 1. Pilihan Ganda (Single Choice)
         if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
           const cleanUserAns = String(userAns).trim().toUpperCase();
           const cleanKey = String(key).trim().toUpperCase();
@@ -126,41 +138,52 @@ function ExamContent() {
           if (cleanUserAns === cleanKey) {
             correctCount++;
           }
-        } else if (tipe === 'multiple' || tipe === 'multiple_choice') {
+        } 
+        // 2. Pilihan Ganda Kompleks (Multiple Choice)
+        else if (tipe === 'multiple' || tipe === 'multiple_choice') {
           const userArr = Array.isArray(userAns) 
             ? userAns.map((a: any) => String(a).trim().toUpperCase()).sort() 
-            : [];
+            : [String(userAns).trim().toUpperCase()];
+            
           const keyArr = Array.isArray(key) 
             ? key.map((k: any) => String(k).trim().toUpperCase()).sort() 
-            : [];
+            : [String(key).trim().toUpperCase()];
 
           if (userArr.length > 0 && JSON.stringify(userArr) === JSON.stringify(keyArr)) {
             correctCount++;
           }
-        } else if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
+        } 
+        // 3. True/False atau Kategori
+        else if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
           if (typeof userAns === 'object' && typeof key === 'object' && userAns !== null && key !== null) {
             const sortedUser = Object.keys(userAns).sort().reduce((acc: Record<string, any>, k) => {
-              acc[k] = (userAns as Record<string, any>)[k];
+              acc[k] = String((userAns as Record<string, any>)[k]).trim().toLowerCase();
               return acc;
             }, {});
             const sortedKey = Object.keys(key).sort().reduce((acc: Record<string, any>, k) => {
-              acc[k] = (key as Record<string, any>)[k];
+              acc[k] = String((key as Record<string, any>)[k]).trim().toLowerCase();
               return acc;
             }, {});
 
             if (JSON.stringify(sortedUser) === JSON.stringify(sortedKey)) {
               correctCount++;
             }
-          } else if (String(userAns).trim().toLowerCase() === String(key).trim().toLowerCase()) {
-            correctCount++;
+          } else {
+            const cleanUserAns = String(userAns).trim().toLowerCase();
+            const cleanKey = String(key).trim().toLowerCase();
+            if (cleanUserAns === cleanKey) {
+              correctCount++;
+            }
           }
         }
       });
 
+      // Hitung nilai akhir skala 0 - 100
       const calculatedScore = questions.length > 0 
         ? Math.round((correctCount / questions.length) * 100) 
         : 0;
 
+      // Kirim hasil akhir dan data answers ke backend
       const response = await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
