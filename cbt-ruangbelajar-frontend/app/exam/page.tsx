@@ -438,7 +438,6 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                       <tr key={opt.label} className="border-b hover:bg-slate-50/50">
                         <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
                         
-                        {/* Tombol Pilihan BENAR */}
                         <td className="p-3 text-center">
                           <button
                             type="button"
@@ -455,7 +454,6 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                           </button>
                         </td>
 
-                        {/* Tombol Pilihan SALAH */}
                         <td className="p-3 text-center">
                           <button
                             type="button"
@@ -477,7 +475,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                 </table>
               </div>
             )}
-            
+
           </div>
         </div>
       </main>
