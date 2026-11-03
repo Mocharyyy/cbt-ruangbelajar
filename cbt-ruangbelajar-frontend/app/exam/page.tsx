@@ -461,6 +461,7 @@ function ExamContent() {
                         {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                       </div>
                       <span className="text-sm md:text-base text-slate-700 leading-snug">
+                        <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
                       </span>
                     </div>
@@ -491,6 +492,7 @@ function ExamContent() {
                         )}
                       </div>
                       <span className="text-sm md:text-base text-slate-700 leading-snug">
+                        <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
                       </span>
                     </div>
