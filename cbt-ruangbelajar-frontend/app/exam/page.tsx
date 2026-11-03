@@ -7,7 +7,7 @@ function ExamContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  // Mendukung parameter URL baik 'exam_id' maupun 'examId' agar tidak miss
+  // Parameter URL exam_id / examId
   const examId = searchParams.get('exam_id') || searchParams.get('examId') || '1';
   const studentExamId = searchParams.get('studentExamId') || '1';
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
@@ -26,7 +26,7 @@ function ExamContent() {
   // 3. Timer Ujian (CountDown 90 Menit = 54000 detik)
   const [timeLeft, setTimeLeft] = useState(90 * 60);
 
-  // 4. State Modal Konfirmasi & Rekap Hasil Ujian (Naïve Bayes)
+  // 4. State Modal Konfirmasi & Rekap Hasil Ujian
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [examResultData, setExamResultData] = useState({
@@ -34,12 +34,7 @@ function ExamContent() {
     status: 'Rendah',
   });
 
-  // Handler Buka Modal Konfirmasi
-  const handleOpenConfirmModal = () => {
-    setIsConfirmModalOpen(true);
-  };
-
-  // 1. Fetch Soal (Disesuaikan agar aman dengan examId dan berbagai format response backend)
+  // 1. Fetch Soal Ujian dari Backend
   useEffect(() => {
     if (!examId) return;
 
@@ -61,9 +56,8 @@ function ExamContent() {
       });
   }, [examId]);
 
-  // 2. Timer Running & Auto Finish saat habis
+  // 2. Timer Ujian (Otomatis Mati jika modal hasil terbuka)
   useEffect(() => {
-    // Jika ujian belum dimulai ATAU modal hasil ujian sudah terbuka, hentikan timer
     if (!isExamStarted || isResultModalOpen) return;
 
     const timer = setInterval(() => {
@@ -88,7 +82,7 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
-  // 3. Helper Simpan Jawaban Ke Database
+  // Helper Simpan Jawaban Ke Database
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
     try {
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/student/answer', {
@@ -105,7 +99,104 @@ function ExamContent() {
     }
   };
 
-  // 4. Selesai Ujian & Hitung Nilai (Kirim Ke Express Backend + Naive Bayes)
+  // =========================================================================
+  // HELPER PERHITUNGAN & VALIDASI JAWABAN AKURAT (3 TIPE SOAL)
+  // =========================================================================
+  const checkIsCorrect = (q: any, userAns: any) => {
+    if (userAns === undefined || userAns === null) return false;
+    
+    let key = q.kunci_jawaban;
+    if (key === undefined || key === null) return false;
+
+    const tipe = (q.tipe_soal || 'single').toLowerCase();
+
+    // A. Single Choice (Pilihan Ganda)
+    if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
+      if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          if (typeof parsed === 'string') key = parsed;
+        } catch (e) {
+          // Tetap gunakan string biasa
+        }
+      }
+      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
+    }
+
+    // B. Multiple Choice (Pilihan Ganda Kompleks / MCMA)
+    if (tipe === 'multiple' || tipe === 'multiple_choice') {
+      let keyArr: string[] = [];
+      if (Array.isArray(key)) {
+        keyArr = key.map((k: any) => String(k).trim().toUpperCase());
+      } else if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          if (Array.isArray(parsed)) {
+            keyArr = parsed.map((k: any) => String(k).trim().toUpperCase());
+          } else {
+            keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
+          }
+        } catch (e) {
+          keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
+        }
+      }
+
+      const userArr = Array.isArray(userAns) 
+        ? userAns.map((u: any) => String(u).trim().toUpperCase())
+        : [];
+
+      if (userArr.length !== keyArr.length) return false;
+      
+      const sortedUser = [...userArr].sort();
+      const sortedKey = [...keyArr].sort();
+      return JSON.stringify(sortedUser) === JSON.stringify(sortedKey);
+    }
+
+    // C. True / False Table (Benar/Salah)
+    if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
+      let keyObj: { [key: string]: boolean } = {};
+      if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
+        keyObj = key;
+      } else if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          if (typeof parsed === 'object' && parsed !== null) {
+            keyObj = parsed;
+          }
+        } catch (e) {
+          // Abaikan
+        }
+      }
+
+      const userObj = typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns)
+        ? userAns
+        : {};
+
+      const keyKeys = Object.keys(keyObj);
+      const userKeys = Object.keys(userObj);
+
+      if (keyKeys.length === 0) return false;
+
+      for (const k of keyKeys) {
+        const normalizedKey = k.trim().toUpperCase();
+        let matchedVal = undefined;
+        for (const uk of userKeys) {
+          if (uk.trim().toUpperCase() === normalizedKey) {
+            matchedVal = userObj[uk];
+            break;
+          }
+        }
+        if (matchedVal !== keyObj[k]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
+  };
+
+  // 4. Selesai Ujian & Hitung Nilai Akhir
   const handleFinishExam = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -115,41 +206,24 @@ function ExamContent() {
 
       questions.forEach((q: any) => {
         const userAns = answers[q.id];
-        const key = q.kunci_jawaban;
-
-        if (!userAns) return;
-
-        const tipe = (q.tipe_soal || 'single').toLowerCase();
-
-        if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
-          if (String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase()) {
-            correctCount++;
-          }
-        } else if (tipe === 'multiple' || tipe === 'multiple_choice') {
-          const userArr = Array.isArray(userAns) ? [...userAns].sort() : [];
-          const keyArr = Array.isArray(key) ? [...key].sort() : [];
-          if (JSON.stringify(userArr) === JSON.stringify(keyArr)) {
-            correctCount++;
-          }
-        } else if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
-          if (JSON.stringify(userAns) === JSON.stringify(key)) {
+        if (userAns !== undefined && userAns !== null) {
+          if (checkIsCorrect(q, userAns)) {
             correctCount++;
           }
         }
       });
 
-      const calculatedScore = questions.length > 0 
-        ? Math.round((correctCount / questions.length) * 100) 
-        : 0;
+      const totalSoal = questions.length > 0 ? questions.length : 50;
+      const calculatedScore = Math.round((correctCount / totalSoal) * 100);
 
-      // Kirim hasil ke Backend (DITAMBAHKAN KEMBALI answers: answers)
+      // Kirim hasil ke Express Backend
       const response = await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           student_exam_id: Number(studentExamId),
           final_score: calculatedScore,
-          answers: answers, // <-- PENTING: Jangan dihapus agar backend tidak error!
+          answers: answers,
         }),
       });
 
@@ -178,13 +252,14 @@ function ExamContent() {
     }
   };
 
-if (loading) {
-  return (
-    <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
-      <p className="font-bold text-[#40b159] animate-pulse text-lg">Memuat Soal Ujian...</p>
-    </div>
-  );
-}
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
+        <p className="font-bold text-[#40b159] animate-pulse text-lg">Memuat Soal Ujian...</p>
+      </div>
+    );
+  }
+
   // ==========================================
   // LAYAR 1: PETUNJUK PENGERJAAN
   // ==========================================
@@ -223,13 +298,13 @@ if (loading) {
         <div className="flex items-center justify-center gap-4 w-full max-w-xl">
           <button
             onClick={() => setIsExamStarted(true)}
-            className="flex-1 py-3.5 px-6 bg-[#40b159] hover:bg-[#369a4c] text-white font-bold rounded-full transition shadow-md text-center"
+            className="flex-1 py-3.5 px-6 bg-[#40b159] hover:bg-[#369a4c] text-white font-bold rounded-full transition shadow-md text-center cursor-pointer"
           >
             Mulai Mengerjakan
           </button>
           <button
             onClick={() => router.push('/dashboard')}
-            className="flex-1 py-3.5 px-6 bg-white hover:bg-slate-50 text-[#40b159] border-2 border-[#40b159] font-bold rounded-full transition shadow-sm text-center"
+            className="flex-1 py-3.5 px-6 bg-white hover:bg-slate-50 text-[#40b159] border-2 border-[#40b159] font-bold rounded-full transition shadow-sm text-center cursor-pointer"
           >
             Kembali
           </button>
@@ -245,7 +320,7 @@ if (loading) {
         <p className="text-sm text-slate-500 mb-4">Soal untuk paket ini belum diinput oleh Admin.</p>
         <button
           onClick={() => router.push('/dashboard')}
-          className="px-6 py-2.5 bg-[#40b159] text-white font-bold rounded-full text-sm"
+          className="px-6 py-2.5 bg-[#40b159] text-white font-bold rounded-full text-sm cursor-pointer"
         >
           Kembali ke Dashboard
         </button>
@@ -261,7 +336,6 @@ if (loading) {
 
   const tipeSoal = (currentQ.tipe_soal || 'single').toLowerCase();
   const questionText = currentQ.soal || '';
-const teksLanjutan = currentQ.teks_lanjutan || '';
 
   const optionsList = [
     { label: 'A', text: currentQ.opsi_a },
@@ -278,7 +352,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
     saveAnswerToDB(currentQ.id, label);
   };
 
-  // Handler Pilihan Ganda Kompleks
+  // Handler Multiple Choice
   const handleMultipleChoice = (label: string) => {
     const list = Array.isArray(currentAns) ? currentAns : [];
     const isChecked = list.includes(label);
@@ -289,7 +363,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
   };
 
   // Handler Benar/Salah
- const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
+  const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
     const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
       ? (currentAns as { [key: string]: boolean })
       : {};
@@ -314,7 +388,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowQuestionModal(true)}
-            className="flex items-center gap-2 bg-[#52b765] hover:bg-[#439e54] text-white font-bold px-6 py-2.5 rounded-full text-sm shadow-sm transition"
+            className="flex items-center gap-2 bg-[#52b765] hover:bg-[#439e54] text-white font-bold px-6 py-2.5 rounded-full text-sm shadow-sm transition cursor-pointer"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -323,12 +397,12 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
           </button>
 
           <button
-  type="button"
-  onClick={() => setIsConfirmModalOpen(true)}
-  className="bg-white border-2 border-rose-500 text-rose-500 hover:bg-rose-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
->
-  Akhiri Ujian
-</button>
+            type="button"
+            onClick={() => setIsConfirmModalOpen(true)}
+            className="bg-white border-2 border-rose-500 text-rose-500 hover:bg-rose-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
+          >
+            Akhiri Ujian
+          </button>
         </div>
       </header>
 
@@ -347,28 +421,28 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6 md:p-8 min-h-[420px] flex flex-col justify-between">
           <div>
             
-            {/* Gambar Soal (Jika Ada) */}
-{currentQ.image_url && currentQ.image_url.trim() !== '' && (
-  <div className="mb-6">
-    <img
-      src={
-        currentQ.image_url.startsWith('http')
-          ? currentQ.image_url
-          : `https://cbt-ruangbelajar-backend.vercel.app${currentQ.image_url}`
-      }
-      alt="Gambar Soal"
-      className="max-h-72 object-contain rounded-lg border"
-    />
-  </div>
-)}
+            {/* Gambar Soal */}
+            {currentQ.image_url && currentQ.image_url.trim() !== '' && (
+              <div className="mb-6">
+                <img
+                  src={
+                    currentQ.image_url.startsWith('http')
+                      ? currentQ.image_url
+                      : `https://cbt-ruangbelajar-backend.vercel.app${currentQ.image_url}`
+                  }
+                  alt="Gambar Soal"
+                  className="max-h-72 object-contain rounded-lg border"
+                />
+              </div>
+            )}
 
-           {/* PERTANYAAN UTAMA (Sejajar rapi di samping nomor 1, tidak dobel, otomatis mengambil teks dari admin) */}
-<div className="text-base md:text-lg text-slate-800 font-medium mb-6 leading-relaxed flex items-start">
-  <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
-  <div className="flex-1">
-    {currentQ.teks_lanjutan || currentQ.teks_sesudah_gambar || currentQ.soal || questionText || ''}
-  </div>
-</div>
+            {/* Pertanyaan Utama */}
+            <div className="text-base md:text-lg text-slate-800 font-medium mb-6 leading-relaxed flex items-start">
+              <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
+              <div className="flex-1">
+                {currentQ.teks_lanjutan || currentQ.teks_sesudah_gambar || currentQ.soal || questionText || ''}
+              </div>
+            </div>
 
             {/* A. TIPE SINGLE CHOICE */}
             {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
@@ -445,7 +519,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                           <button
                             type="button"
                             onClick={() => handleTrueFalse(opt.label, true)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
                               currentAns?.[opt.label] === true 
                                 ? 'border-[#327ca6] bg-[#327ca6]' 
                                 : 'border-slate-300 bg-white'
@@ -461,7 +535,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
                           <button
                             type="button"
                             onClick={() => handleTrueFalse(opt.label, false)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition ${
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
                               currentAns?.[opt.label] === false 
                                 ? 'border-[#327ca6] bg-[#327ca6]' 
                                 : 'border-slate-300 bg-white'
@@ -489,7 +563,7 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
           <button
             disabled={currentIndex === 0}
             onClick={() => setCurrentIndex(currentIndex - 1)}
-            className="px-6 py-2.5 bg-[#29aae1] hover:bg-[#1f96c9] text-white font-bold rounded-full text-sm disabled:opacity-30 transition shadow-sm"
+            className="px-6 py-2.5 bg-[#29aae1] hover:bg-[#1f96c9] text-white font-bold rounded-full text-sm disabled:opacity-30 transition shadow-sm cursor-pointer"
           >
             Sebelumnya
           </button>
@@ -497,14 +571,14 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
           <button
             disabled={currentIndex === questions.length - 1}
             onClick={() => setCurrentIndex(currentIndex + 1)}
-            className="px-6 py-2.5 bg-[#52b765] hover:bg-[#439e54] text-white font-bold rounded-full text-sm disabled:opacity-30 transition shadow-sm ml-auto"
+            className="px-6 py-2.5 bg-[#52b765] hover:bg-[#439e54] text-white font-bold rounded-full text-sm disabled:opacity-30 transition shadow-sm ml-auto cursor-pointer"
           >
             Berikutnya
           </button>
         </div>
       </footer>
 
-      {/* Modal Daftar Soal */}
+      {/* MODAL DAFTAR SOAL (SAAT EXAM) */}
       {showQuestionModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border">
@@ -512,55 +586,53 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
               <h3 className="font-bold text-slate-800 text-lg">Daftar Nomor Soal</h3>
               <button
                 onClick={() => setShowQuestionModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-xl font-bold"
+                className="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-           <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5 max-h-72 overflow-y-auto p-1">
-  {questions.map((q, idx) => {
-    const ansVal = answers[q.id];
-    
-    // Pengecekan cerdas untuk semua tipe soal (bisa string, array, atau objek benar/salah)
-    let isAnswered = false;
-    if (ansVal !== undefined && ansVal !== null) {
-      if (Array.isArray(ansVal)) {
-        isAnswered = ansVal.length > 0;
-      } else if (typeof ansVal === 'object') {
-        // Dianggap sudah dijawab jika objeknya memiliki minimal 1 properti
-        isAnswered = Object.keys(ansVal).length > 0;
-      } else {
-        isAnswered = String(ansVal).trim() !== '';
-      }
-    }
+            <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5 max-h-72 overflow-y-auto p-1">
+              {questions.map((q, idx) => {
+                const ansVal = answers[q.id];
+                
+                let isAnswered = false;
+                if (ansVal !== undefined && ansVal !== null) {
+                  if (Array.isArray(ansVal)) {
+                    isAnswered = ansVal.length > 0;
+                  } else if (typeof ansVal === 'object') {
+                    isAnswered = Object.keys(ansVal).length > 0;
+                  } else {
+                    isAnswered = String(ansVal).trim() !== '';
+                  }
+                }
 
-    const isCurrent = idx === currentIndex;
-    return (
-      <button
-        key={q.id || idx}
-        onClick={() => {
-          setCurrentIndex(idx);
-          setShowQuestionModal(false);
-        }}
-        className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center border ${
-          isCurrent
-            ? 'bg-[#327ca6] text-white border-[#327ca6]'
-            : isAnswered
-            ? 'bg-[#52b765] text-white border-[#52b765]'
-            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-        }`}
-      >
-        {idx + 1}
-      </button>
-    );
-  })}
-</div>
+                const isCurrent = idx === currentIndex;
+                return (
+                  <button
+                    key={q.id || idx}
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setShowQuestionModal(false);
+                    }}
+                    className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center border cursor-pointer ${
+                      isCurrent
+                        ? 'bg-[#327ca6] text-white border-[#327ca6]'
+                        : isAnswered
+                        ? 'bg-[#52b765] text-white border-[#52b765]'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
 
             <div className="mt-6 pt-3 border-t flex justify-end">
               <button
                 onClick={() => setShowQuestionModal(false)}
-                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-full text-sm"
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-full text-sm cursor-pointer"
               >
                 Tutup
               </button>
@@ -569,230 +641,222 @@ const teksLanjutan = currentQ.teks_lanjutan || '';
         </div>
       )}
 
-{/* MODAL KONFIRMASI (GAMBAR 2) */}
-{isConfirmModalOpen && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-    <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 text-center">
-      
-      {/* Tombol Silang (X) */}
-      <button
-        type="button"
-        onClick={() => setIsConfirmModalOpen(false)}
-        className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-      >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-
-      {/* Judul Peringatan */}
-      <h3 className="text-xl font-medium text-gray-600 mt-2 mb-4">Peringatan</h3>
-
-      {/* Pesan Konfirmasi */}
-      <p className="text-gray-500 mb-8 font-normal">Apakah Anda ingin mengakhiri Ujian ini ?</p>
-
-      {/* Tombol Selesaikan */}
-      <div className="flex justify-center">
-        <button
-          type="button"
-          onClick={() => {
-            setIsConfirmModalOpen(false);
-            handleFinishExam();
-          }}
-          disabled={isSubmitting}
-          className="bg-[#f43f5e] hover:bg-[#e11d48] text-white font-medium px-10 py-2.5 rounded-full shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-        >
-          {isSubmitting ? 'Memproses...' : 'Selesaikan'}
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
-
-{/* MODAL REKAP HASIL UJIAN (INDIKATOR NAIVE BAYES) */}
-{isResultModalOpen && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-    <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100 animate-in fade-in zoom-in duration-200">
-      
-      {/* Header Judul Paket */}
-      <div className="text-center mb-6">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-700 tracking-wide mb-1">
-          Paket Ujian CBT - Ruang Belajar
-        </h1>
-        <div className="flex justify-between items-center text-xs md:text-sm text-sky-500 font-medium px-2 mt-2">
-          <span>Paket 1 Ujian CBT - Tarka Fest</span>
-          <span className="text-gray-400 font-normal">07/10/2026</span>
-        </div>
-      </div>
-
-      {/* Grid Dua Kolom (Total Skor & Indikator Nilai Naïve Bayes) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        
-        {/* Box Kiri: TOTAL SKOR */}
-        <div className="bg-[#60a5fa] rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between border border-blue-300">
-          <div className="bg-[#3b82f6]/30 py-3 text-center">
-            <h2 className="text-white font-bold text-base md:text-lg tracking-wider">
-              TOTAL SKOR
-            </h2>
-          </div>
-          <div className="py-10 text-center">
-            <span className="text-white font-extrabold text-5xl md:text-6xl tracking-tight">
-              {Number(examResultData.score).toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Box Kanan: INDIKATOR NILAI NAÏVE BAYES */}
-        <div className="bg-[#f3f4f6] rounded-2xl overflow-hidden shadow-sm border border-gray-200 flex flex-col justify-between">
-          <div className="bg-gray-300 py-3 text-center">
-            <h2 className="text-gray-700 font-bold text-base md:text-lg tracking-wider">
-              INDIKATOR NILAI
-            </h2>
-          </div>
-          <div className="p-4 md:p-6 text-center space-y-2.5 font-semibold text-sm md:text-base flex flex-col justify-center h-full">
-            <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 80 ? 'bg-emerald-100 ring-2 ring-emerald-500 font-bold' : 'opacity-50'}`}>
-              <span className="text-emerald-600">80 - 100 = Tinggi</span>
-            </div>
-            <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 60 && examResultData.score < 80 ? 'bg-amber-100 ring-2 ring-amber-500 font-bold' : 'opacity-50'}`}>
-              <span className="text-amber-600">60 - 79 = Sedang</span>
-            </div>
-            <div className={`p-2 rounded-xl transition-all ${examResultData.score < 60 ? 'bg-rose-100 ring-2 ring-rose-500 font-bold' : 'opacity-50'}`}>
-              <span className="text-rose-600">0 - 59 = Rendah</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Tombol Aksi Bawah */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-gray-100">
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button
-  type="button"
-  onClick={() => {
-    setIsResultModalOpen(false); // Tutup modal hasil
-    setShowDiscussionModal(true); // Buka modal daftar pembahasan
-  }}
-  className="flex-1 sm:flex-none bg-[#4ad076] hover:bg-[#3fb867] text-white font-semibold px-6 py-2.5 rounded-full shadow-xs transition cursor-pointer text-sm"
->
-  Pembahasan
-</button>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="flex-1 sm:flex-none bg-[#38bdf8] hover:bg-[#0284c7] text-white font-semibold px-6 py-2.5 rounded-full shadow-sm transition cursor-pointer text-sm"
-          >
-            Ulangi
-          </button>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => router.push('/dashboard')}
-          className="w-full sm:w-auto border-2 border-[#38bdf8] text-[#38bdf8] hover:bg-sky-50 font-semibold px-8 py-2.5 rounded-full transition cursor-pointer text-sm"
-        >
-          Kembali
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
-
-{/* MODAL POP-UP DAFTAR NOMOR SOAL (PEMBAHASAN) */}
-{showDiscussionModal && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-    <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 md:p-8 text-center animate-in fade-in zoom-in duration-200">
-      
-      {/* Tombol Silang (X) */}
-      <button
-        type="button"
-        onClick={() => setShowDiscussionModal(false)}
-        className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-      >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-
-      {/* Judul Modal */}
-      <h3 className="text-gray-500 font-medium text-lg mb-4">Daftar Nomor Soal</h3>
-
-      {/* Baris Total Soal */}
-      <div className="flex items-center justify-center gap-4 mb-6">
-        <button
-          type="button"
-          className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
-        >
-          &lt;
-        </button>
-        <span className="text-gray-600 font-medium text-sm">
-          Total : {questions.length} Soal
-        </span>
-        <button
-          type="button"
-          className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
-        >
-          &gt;
-        </button>
-      </div>
-
-      {/* Grid Nomor Soal */}
-      <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
-        {questions.map((q, idx) => {
-          const userAns = answers[q.id];
-          const keyAns = q.kunci_jawaban;
-          let badgeColor = 'border-gray-300 text-gray-400 bg-gray-50'; // Tidak dijawab (Abu-abu)
-
-          if (userAns !== undefined && userAns !== null && userAns !== '') {
-            if (String(userAns).trim().toUpperCase() === String(keyAns).trim().toUpperCase()) {
-              badgeColor = 'border-emerald-500 text-emerald-600 bg-emerald-50 font-bold'; // Benar (Hijau)
-            } else {
-              badgeColor = 'border-rose-500 text-rose-600 bg-rose-50 font-bold'; // Salah (Merah)
-            }
-          }
-
-          return (
+      {/* MODAL KONFIRMASI (AKHIRI UJIAN) */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 text-center">
+            
             <button
-              key={q.id || idx}
               type="button"
-              onClick={() => {
-                setCurrentIndex(idx);
-                setShowDiscussionModal(false);
-              }}
-              className={`w-11 h-11 mx-auto rounded-full border-2 flex items-center justify-center text-base transition-all hover:scale-105 cursor-pointer ${badgeColor}`}
+              onClick={() => setIsConfirmModalOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
             >
-              {idx + 1}
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-          );
-        })}
-      </div>
 
-      {/* Keterangan Warna Indikator */}
-      <div className="flex justify-center items-center gap-6 text-xs text-gray-500 font-medium mb-4">
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
-          <span>Benar</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
-          <span>Salah</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-gray-300 inline-block"></span>
-          <span>Tidak Dijawab</span>
-        </div>
-      </div>
+            <h3 className="text-xl font-medium text-gray-600 mt-2 mb-4">Peringatan</h3>
+            <p className="text-gray-500 mb-8 font-normal">Apakah Anda ingin mengakhiri Ujian ini ?</p>
 
-      {/* Footer Note */}
-      <p className="text-xs text-gray-500 font-normal">
-        *Klik pada nomor yang <span className="text-rose-500 font-semibold">salah</span> untuk melihat kunci jawaban
-      </p>
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsConfirmModalOpen(false);
+                  handleFinishExam();
+                }}
+                disabled={isSubmitting}
+                className="bg-[#f43f5e] hover:bg-[#e11d48] text-white font-medium px-10 py-2.5 rounded-full shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmitting ? 'Memproses...' : 'Selesaikan'}
+              </button>
+            </div>
 
-    </div>
-  </div>
-)}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REKAP HASIL UJIAN */}
+      {isResultModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100 animate-in fade-in zoom-in duration-200">
+            
+            <div className="text-center mb-6">
+              <h1 className="text-xl md:text-2xl font-bold text-gray-700 tracking-wide mb-1">
+                Paket Ujian CBT - Ruang Belajar
+              </h1>
+              <div className="flex justify-between items-center text-xs md:text-sm text-sky-500 font-medium px-2 mt-2">
+                <span>Paket 1 Ujian CBT - Tarka Fest</span>
+                <span className="text-gray-400 font-normal">07/10/2026</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="bg-[#60a5fa] rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between border border-blue-300">
+                <div className="bg-[#3b82f6]/30 py-3 text-center">
+                  <h2 className="text-white font-bold text-base md:text-lg tracking-wider">
+                    TOTAL SKOR
+                  </h2>
+                </div>
+                <div className="py-10 text-center">
+                  <span className="text-white font-extrabold text-5xl md:text-6xl tracking-tight">
+                    {Number(examResultData.score).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-[#f3f4f6] rounded-2xl overflow-hidden shadow-sm border border-gray-200 flex flex-col justify-between">
+                <div className="bg-gray-300 py-3 text-center">
+                  <h2 className="text-gray-700 font-bold text-base md:text-lg tracking-wider">
+                    INDIKATOR NILAI
+                  </h2>
+                </div>
+                <div className="p-4 md:p-6 text-center space-y-2.5 font-semibold text-sm md:text-base flex flex-col justify-center h-full">
+                  <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 80 ? 'bg-emerald-100 ring-2 ring-emerald-500 font-bold' : 'opacity-50'}`}>
+                    <span className="text-emerald-600">80 - 100 = Tinggi</span>
+                  </div>
+                  <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 60 && examResultData.score < 80 ? 'bg-amber-100 ring-2 ring-amber-500 font-bold' : 'opacity-50'}`}>
+                    <span className="text-amber-600">60 - 79 = Sedang</span>
+                  </div>
+                  <div className={`p-2 rounded-xl transition-all ${examResultData.score < 60 ? 'bg-rose-100 ring-2 ring-rose-500 font-bold' : 'opacity-50'}`}>
+                    <span className="text-rose-600">0 - 59 = Rendah</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-gray-100">
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResultModalOpen(false);
+                    setShowDiscussionModal(true);
+                  }}
+                  className="flex-1 sm:flex-none bg-[#4ad076] hover:bg-[#3fb867] text-white font-semibold px-6 py-2.5 rounded-full shadow-xs transition cursor-pointer text-sm"
+                >
+                  Pembahasan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="flex-1 sm:flex-none bg-[#38bdf8] hover:bg-[#0284c7] text-white font-semibold px-6 py-2.5 rounded-full shadow-sm transition cursor-pointer text-sm"
+                >
+                  Ulangi
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard')}
+                className="w-full sm:w-auto border-2 border-[#38bdf8] text-[#38bdf8] hover:bg-sky-50 font-semibold px-8 py-2.5 rounded-full transition cursor-pointer text-sm"
+              >
+                Kembali
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL POP-UP PEMBAHASAN (SINKRON DENGAN HASIL NILAI) */}
+      {showDiscussionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 md:p-8 text-center animate-in fade-in zoom-in duration-200">
+            
+            <button
+              type="button"
+              onClick={() => setShowDiscussionModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-gray-500 font-medium text-lg mb-4">Daftar Nomor Soal</h3>
+
+            <div className="flex items-center justify-center gap-4 mb-6">
+              <button
+                type="button"
+                className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
+              >
+                &lt;
+              </button>
+              <span className="text-gray-600 font-medium text-sm">
+                Total : {questions.length} Soal
+              </span>
+              <button
+                type="button"
+                className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
+              >
+                &gt;
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
+              {questions.map((q, idx) => {
+                const userAns = answers[q.id];
+                let badgeColor = 'border-gray-300 text-gray-400 bg-gray-50'; // Tidak dijawab (Abu-abu)
+
+                if (userAns !== undefined && userAns !== null) {
+                  let isNotEmpty = false;
+                  if (Array.isArray(userAns)) {
+                    isNotEmpty = userAns.length > 0;
+                  } else if (typeof userAns === 'object') {
+                    isNotEmpty = Object.keys(userAns).length > 0;
+                  } else {
+                    isNotEmpty = String(userAns).trim() !== '';
+                  }
+
+                  if (isNotEmpty) {
+                    if (checkIsCorrect(q, userAns)) {
+                      badgeColor = 'border-emerald-500 text-emerald-600 bg-emerald-50 font-bold'; // Benar (Hijau)
+                    } else {
+                      badgeColor = 'border-rose-500 text-rose-600 bg-rose-50 font-bold'; // Salah (Merah)
+                    }
+                  }
+                }
+
+                return (
+                  <button
+                    key={q.id || idx}
+                    type="button"
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setShowDiscussionModal(false);
+                    }}
+                    className={`w-11 h-11 mx-auto rounded-full border-2 flex items-center justify-center text-base transition-all hover:scale-105 cursor-pointer ${badgeColor}`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-center items-center gap-6 text-xs text-gray-500 font-medium mb-4">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+                <span>Benar</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+                <span>Salah</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-gray-300 inline-block"></span>
+                <span>Tidak Dijawab</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500 font-normal">
+              *Klik pada nomor yang <span className="text-rose-500 font-semibold">salah</span> untuk melihat kunci jawaban
+            </p>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
