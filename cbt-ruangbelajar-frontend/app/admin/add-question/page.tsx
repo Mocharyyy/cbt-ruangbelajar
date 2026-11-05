@@ -58,7 +58,7 @@ function AddEditQuestionContent() {
             tipe_soal: q.tipe_soal || 'single',
             teks_sebelum_gambar: q.teks_sebelum_gambar || q.soal || '',
             gambar_soal: q.gambar_soal || q.image_url || '',
-            teks_sesudah_gambar: q.teks_sesudah_gambar || '',
+            teks_sesudah_gambar: q.teks_sesudah_gambar || q.teks_lanjutan || '',
             opsi_a_text: q.opsi_a_text || q.opsi_a || '',
             opsi_a_img: q.opsi_a_img || '',
             opsi_b_text: q.opsi_b_text || q.opsi_b || '',
@@ -121,11 +121,13 @@ function AddEditQuestionContent() {
         }
       }
 
+      // Pemetaan payload agar sinkron sepenuhnya dengan backend & halaman exam siswa
       const finalPayload = {
         ...payloadData,
         soal: payloadData.teks_sebelum_gambar || '',
         image_url: payloadData.gambar_soal || '',
         teks_lanjutan: payloadData.teks_sesudah_gambar || '',
+        teks_sesudah_gambar: payloadData.teks_sesudah_gambar || '',
       };
 
       const endpoint = editId
@@ -145,7 +147,7 @@ function AddEditQuestionContent() {
         alert(editId ? 'Soal berhasil diperbarui!' : 'Soal berhasil ditambahkan!');
         router.push(`/admin/questions?exam_id=${examId}`);
       } else {
-        alert('Gagal menyimpan soal: ' + data.message);
+        alert('Gagal menyimpan soal: ' + (data.message || 'Kesalahan server'));
       }
     } catch (err) {
       console.error(err);
@@ -204,13 +206,14 @@ function AddEditQuestionContent() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
-                Isi Soal / Pertanyaan Utama
+                Isi Soal / Pertanyaan Utama (Spasi dan Enter akan terjaga rapi)
               </label>
               <textarea
-                rows={3}
+                rows={4}
                 value={formData.teks_sebelum_gambar}
                 onChange={(e) => setFormData({ ...formData, teks_sebelum_gambar: e.target.value })}
-                className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm"
+                className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm whitespace-pre-wrap"
+                placeholder="Tuliskan teks soal di sini..."
               />
             </div>
 
@@ -226,20 +229,30 @@ function AddEditQuestionContent() {
                 className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
               {formData.gambar_soal && (
-                <img src={formData.gambar_soal} alt="Preview Soal" className="h-24 mt-2 rounded border object-contain" />
+                <div className="mt-2">
+                  <img src={formData.gambar_soal} alt="Preview Soal" className="h-28 rounded border object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, gambar_soal: '' })}
+                    className="mt-1 text-xs text-red-600 hover:underline font-semibold"
+                  >
+                    Hapus Gambar
+                  </button>
+                </div>
               )}
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Teks Pertanyaan Lanjutan (Opsional - Setelah Gambar)
+                Teks Pertanyaan Lanjutan / Keterangan Bawah Gambar (Opsional)
               </label>
-              <p className="text-[11px] text-gray-400 mb-2">Isi jika ada pertanyaan tambahan di bawah gambar.</p>
+              <p className="text-[11px] text-gray-400 mb-2">Isi jika ada penjelasan atau pertanyaan tambahan di bawah gambar.</p>
               <textarea
-                rows={2}
+                rows={3}
                 value={formData.teks_sesudah_gambar}
                 onChange={(e) => setFormData({ ...formData, teks_sesudah_gambar: e.target.value })}
-                className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm"
+                className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm whitespace-pre-wrap"
+                placeholder="Keterangan atau kelanjutan teks di bawah gambar..."
               />
             </div>
 
@@ -269,7 +282,7 @@ function AddEditQuestionContent() {
             ) : (
               <div>
                 <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4">
-                  Pernyataan / Opsi Jawaban (Teks / Gambar Screenshot)
+                  Pernyataan / Opsi Jawaban (Teks / Gambar)
                 </h2>
                 {['a', 'b', 'c', 'd'].map((opt) => {
                   const keyText = `opsi_${opt}_text` as keyof typeof formData;
@@ -404,7 +417,6 @@ function AddEditQuestionContent() {
   );
 }
 
-// Komponen Pembungkus Suspense agar lolos build prerendering Vercel
 export default function AddEditQuestionPage() {
   return (
     <Suspense fallback={<div className="p-10 text-center font-bold text-slate-600">Memuat halaman...</div>}>
