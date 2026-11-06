@@ -2,8 +2,7 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
 // ==========================================
 // MIDDLEWARE CONFIGURATION
@@ -12,36 +11,19 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Akses folder uploads untuk gambar (http://localhost:5000/uploads/...)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
 // ==========================================
-// KONFIGURASI MULTER (DINAMIS DENGAN MAPEL & NOMOR SOAL)
+// KONFIGURASI CLOUDINARY
 // ==========================================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const mapel = req.body.mapel 
-      ? req.body.mapel.toLowerCase().trim().replace(/\s+/g, '_') 
-      : 'umum';
-    
-    const uploadPath = path.join(__dirname, 'uploads', mapel);
-
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const noSoal = req.body.no_soal ? `soal_${req.body.no_soal}` : 'soal';
-    const uniqueSuffix = Date.now();
-    const ext = path.extname(file.originalname);
-    const cleanFileName = path.basename(file.originalname, ext).toLowerCase().replace(/\s+/g, '_');
-
-    cb(null, `${noSoal}-${uniqueSuffix}-${cleanFileName}${ext}`);
-  }
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dspyqszbi',
+  api_key: process.env.CLOUDINARY_API_KEY || '857471171332955',
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// ==========================================
+// KONFIGURASI MULTER (MEMORY STORAGE UNTUK VERCEL)
+// ==========================================
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 // Koneksi Database MySQL (Connection Pool - Promise)
@@ -137,10 +119,9 @@ async function predictNaiveBayes(nilaiSiswa, db) {
 }
 
 // ==========================================
-// ENDPOINT AUTH & PENDAFTARAN SISWA (FIXED WITH ASYNC/AWAIT)
+// ENDPOINT AUTH & PENDAFTARAN SISWA
 // ==========================================
 
-// Endpoint Pendaftaran Siswa
 app.post('/api/student/register', async (req, res) => {
   try {
     const { nama, email, sekolah, kelas_id } = req.body;
@@ -167,9 +148,6 @@ app.post('/api/student/register', async (req, res) => {
   }
 });
 
-module.exports = app;
-
-// Endpoint Verifikasi Passcode saat Login (FIXED WITH ASYNC/AWAIT)
 app.post('/api/student/verify-passcode', async (req, res) => {
   try {
     const { email, passcode } = req.body;
@@ -200,26 +178,39 @@ app.post('/api/student/verify-passcode', async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINT ADMIN (BANK SOAL & UPLOAD)
+// ENDPOINT ADMIN (BANK SOAL & CLOUDINARY UPLOAD)
 // ==========================================
 
-// ==========================================
-// KODE ADMIN: TAMBAH & UPDATE SOAL
-// ==========================================
+// 1. Upload Gambar Menggunakan Cloudinary Stream
+app.post('/api/admin/upload', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Tidak ada file diunggah' });
+    }
 
-// 1. Upload Gambar Soal
-app.post('/api/admin/upload', upload.single('image'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'Tidak ada file diunggah' });
+    const uploadToCloudinary = (fileBuffer) => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cbt_ruangbelajar' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(fileBuffer);
+      });
+    };
+
+    const result = await uploadToCloudinary(req.file.buffer);
+
+    return res.json({ 
+      success: true, 
+      imageUrl: result.secure_url 
+    });
+  } catch (error) {
+    console.error('Cloudinary Upload Error:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengunggah ke Cloudinary: ' + error.message });
   }
-
-  const mapel = req.body.mapel 
-    ? req.body.mapel.toLowerCase().trim().replace(/\s+/g, '_') 
-    : 'umum';
-
-  const imageUrl = `/uploads/${mapel}/${req.file.filename}`;
-
-  res.json({ success: true, imageUrl });
 });
 
 // 2. Tambah Soal Baru (POST) 
@@ -248,7 +239,6 @@ app.post('/api/admin/questions', async (req, res) => {
     const optD = opsi_d_text || opsi_d || '';
     const optE = opsi_e_text || opsi_e || '';
 
-    // Perbaikan penanganan kunci jawaban agar rapi berbasis teks string koma bersih
     let formattedKunci = '';
     if (Array.isArray(kunci_jawaban)) {
       formattedKunci = kunci_jawaban.join(',').trim();
@@ -280,7 +270,7 @@ app.post('/api/admin/questions', async (req, res) => {
   }
 });
 
-// 3. Update Soal (PUT) - DIPERBAIKI
+// 3. Update Soal (PUT)
 app.put('/api/admin/questions/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -306,7 +296,6 @@ app.put('/api/admin/questions/:id', async (req, res) => {
     const optD = opsi_d_text || opsi_d || '';
     const optE = opsi_e_text || opsi_e || '';
 
-    // Perbaikan penanganan kunci jawaban saat update
     let formattedKunci = '';
     if (Array.isArray(kunci_jawaban)) {
       formattedKunci = kunci_jawaban.join(',').trim();
@@ -340,7 +329,7 @@ app.put('/api/admin/questions/:id', async (req, res) => {
   }
 });
 
-// 4. Endpoint Hapus Soal (Beserta Gambar Fisik)
+// 4. Endpoint Hapus Soal (Hanya Hapus dari DB, Gambar Aman di Cloudinary)
 app.delete('/api/admin/questions/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -351,32 +340,9 @@ app.delete('/api/admin/questions/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Soal tidak ditemukan' });
     }
 
-    const question = rows[0];
-
-    const imageFields = [
-      question.image_url,
-      question.gambar_soal,
-      question.opsi_a_img,
-      question.opsi_b_img,
-      question.opsi_c_img,
-      question.opsi_d_img,
-      question.opsi_e_img
-    ];
-
-    imageFields.forEach((imagePath) => {
-      if (imagePath && typeof imagePath === 'string') {
-        const cleanPath = imagePath.replace(/^\//, ''); 
-        const fullPath = path.join(__dirname, cleanPath);
-
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-        }
-      }
-    });
-
     await db.query('DELETE FROM questions WHERE id = ?', [id]);
 
-    return res.json({ success: true, message: 'Soal dan file gambar terkait berhasil dihapus!' });
+    return res.json({ success: true, message: 'Soal berhasil dihapus!' });
   } catch (error) {
     console.error('Error deleting question:', error);
     return res.status(500).json({ success: false, message: 'Gagal menghapus soal' });
@@ -402,10 +368,9 @@ app.get('/api/admin/questions', async (req, res) => {
   }
 });
 
-// Fungsi Evaluasi Multi-Tipe Soal yang Disempurnakan
+// Fungsi Evaluasi Multi-Tipe Soal
 function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
   try {
-    // 1. Ambil kunci jawaban dari database, misal "B,B,S" atau "B,B,S,B" jadikan array
     let cArr = [];
     if (typeof correctAnswer === 'string') {
       cArr = correctAnswer.split(',').map(v => v.trim().toUpperCase());
@@ -417,8 +382,6 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
       return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
     }
 
-    // 2. Ubah jawaban siswa menjadi array status per baris ('B' atau 'S')
-    // Hanya diambil sebanyak jumlah kunci jawaban yang ada (misal cArr cuma 3, maka ambil 3 pertama: A, B, C)
     let sArr = [];
     const keys = ['A', 'B', 'C', 'D', 'E'].slice(0, cArr.length);
 
@@ -433,7 +396,6 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
       sArr = studentAnswer.split(',').map(v => v.trim().toUpperCase()).slice(0, cArr.length);
     }
 
-    // 3. Bandingkan urutan baris demi baris sesuai jumlah pernyataan yang ada
     if (sArr.length > 0) {
       if (sArr.length !== cArr.length) return false;
       return sArr.every((val, idx) => val === cArr[idx]);
@@ -442,14 +404,13 @@ function evaluateAnswer(studentAnswer, correctAnswer, questionType) {
     console.log("Error evaluating true/false sequence:", e.message);
   }
 
-  // Fallback untuk soal pilihan ganda biasa
   return String(studentAnswer ?? '').trim().toLowerCase() === String(correctAnswer ?? '').trim().toLowerCase();
 }
 
 // Endpoint Submit & Koreksi Otomatis Ujian Siswa
 app.post('/api/exam/submit', async (req, res) => {
   try {
-    const { answers } = req.body; // Array jawaban siswa: [{ question_id, user_answer }]
+    const { answers } = req.body; 
     let totalScore = 0;
     let correctCount = 0;
     let wrongCount = 0;
@@ -464,7 +425,6 @@ app.post('/api/exam/submit', async (req, res) => {
       if (rows.length > 0) {
         const question = rows[0];
         
-        // Koreksi jawaban menggunakan fungsi evaluasi multi-tipe
         const isCorrect = evaluateAnswer(
           ans.user_answer,
           question.kunci_jawaban,
@@ -473,7 +433,7 @@ app.post('/api/exam/submit', async (req, res) => {
 
         if (isCorrect) {
           correctCount++;
-          totalScore += 2; // Sesuaikan bobot nilai
+          totalScore += 2; 
         } else {
           wrongCount++;
         }
@@ -493,15 +453,13 @@ app.post('/api/exam/submit', async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINT SISWA (AMBIL SOAL, JAWABAN & SELESAI UJIAN)
+// ENDPOINT SISWA (AMBIL SOAL & UJIAN)
 // ==========================================
 
-// Endpoint /api/exams berdasarkan jenjang siswa
 app.get('/api/exams', async (req, res) => {
   try {
     const userId = req.query.user_id;
 
-    // Jika Admin (tanpa user_id)
     if (!userId) {
       const queryAll = `
         SELECT exams.*, mapel.nama_mapel AS mapel 
@@ -513,7 +471,6 @@ app.get('/api/exams', async (req, res) => {
       return res.json({ success: true, exams: rows });
     }
 
-    // Jika Siswa
     const [userRows] = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
     if (userRows.length === 0) {
       return res.json({ success: false, message: 'User tidak ditemukan' });
@@ -531,7 +488,6 @@ app.get('/api/exams', async (req, res) => {
       jenjangLabel = 'SMA/SMK';
     }
 
-    // Ambil ujian murni berdasarkan kolom jenjang
     const queryStudent = `
       SELECT exams.*, mapel.nama_mapel AS mapel 
       FROM exams 
@@ -565,7 +521,6 @@ app.post('/api/student/start-exam', async (req, res) => {
   try {
     const { user_id, exam_id } = req.body;
 
-    // Cek apakah sudah ada sesi ujian yang sedang berlangsung ('ongoing')
     let [existingExam] = await db.query(
       `SELECT id FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'ongoing'`,
       [user_id, exam_id]
@@ -574,10 +529,8 @@ app.post('/api/student/start-exam', async (req, res) => {
     let student_exam_id;
 
     if (existingExam.length > 0) {
-      // Gunakan sesi ujian yang sudah ada
       student_exam_id = existingExam[0].id;
     } else {
-      // Jika belum ada, buat 1 sesi ujian baru
       const [insertResult] = await db.query(
         `INSERT INTO student_exams (user_id, exam_id, status) VALUES (?, ?, 'ongoing')`,
         [user_id, exam_id]
@@ -595,7 +548,6 @@ app.post('/api/student/start-exam', async (req, res) => {
   }
 });
 
-// Simpan Jawaban Siswa (FIXED WITH AUTO-CREATE EXAM SESSION)
 app.post('/api/student/answer', async (req, res) => {
   try {
     const { student_exam_id, question_id, jawaban } = req.body;
@@ -637,10 +589,8 @@ app.post('/api/exam/finish', async (req, res) => {
   try {
     const { student_exam_id, final_score, answers } = req.body;
     
-    // Simpan ke database jika tabelnya ada
     try {
       if (db && typeof db.query === 'function') {
-        // Jika kamu ingin menyimpan detail answers ke database (pastikan ada kolomnya atau simpan sebagai JSON string)
         const answersString = answers ? JSON.stringify(answers) : null;
         
         await db.query(
@@ -649,25 +599,20 @@ app.post('/api/exam/finish', async (req, res) => {
         );
       }
     } catch (dbErr) {
-      console.error('Database save error (ignored):', dbErr.message);
-      // Fallback update jika kolom detail_jawaban belum ada di database
       try {
         await db.query(
           `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
           [final_score || 0, student_exam_id]
         );
-      } catch (innerErr) {
-        // Abaikan error database agar response tetap sukses ke frontend
-      }
+      } catch (innerErr) {}
     }
 
-    // Kirim respons lengkap ke frontend dengan mengembalikan data answers yang dikirim siswa
     return res.status(200).json({
       success: true,
       message: 'Ujian berhasil diselesaikan',
       final_score: final_score || 0,
       status_kesiapan: final_score >= 70 ? 'SIAP' : 'Rendah',
-      answers: answers || {} // Mengembalikan data answers yang dikirim dari frontend
+      answers: answers || {}
     });
   } catch (error) {
     console.error('Error in /api/exam/finish:', error);
@@ -680,15 +625,11 @@ app.post('/api/exam/finish', async (req, res) => {
   }
 });
 
-// Tambahkan endpoint ini ke server.js
 app.get('/api/exams/:examId/questions', async (req, res) => {
   try {
     const examId = req.params.examId;
 
-    // Ambil data soal dari database berdasarkan exam_id
     const [questions] = await db.query('SELECT * FROM questions WHERE exam_id = ?', [examId]);
-    
-    // Ambil juga informasi ujian
     const [examInfo] = await db.query('SELECT * FROM exams WHERE id = ?', [examId]);
 
     res.json({
@@ -702,8 +643,6 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
   }
 });
 
-// Endpoint Papan Peringkat (Leaderboard) dengan Akumulasi Nilai Total
-// Endpoint Leaderboard Akumulasi Total Skor
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const query = `
@@ -729,7 +668,6 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
-// Endpoint Menyelesaikan Ujian (Menyimpan Skor, Status Bayes, dan Durasi Waktu)
 app.post('/api/exams/finish', async (req, res) => {
   try {
     const { student_exam_id, skor_akhir, status_bayes, duration } = req.body;
@@ -748,7 +686,6 @@ app.post('/api/exams/finish', async (req, res) => {
   }
 });
 
-// Endpoint untuk melihat daftar user yang mendaftar/login (Sesuai struktur tabel phpMyAdmin)
 app.get('/api/admin/users', async (req, res) => {
   try {
     const query = `
@@ -764,7 +701,6 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
-// Endpoint untuk menghapus user berdasarkan ID
 app.delete('/api/admin/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -780,7 +716,7 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 // ==========================================
 // RUN SERVER
 // ==========================================
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server Backend berjalan di http://localhost:${PORT}`);
 });
