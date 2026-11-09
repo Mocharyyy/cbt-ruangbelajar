@@ -12,19 +12,48 @@ function ExamContent() {
   const studentExamId = searchParams.get('studentExamId') || '1';
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
+  // Key LocalStorage Unik untuk Sesi Ujian Ini
+  const timerKey = `cbt_timer_${examId}_${studentExamId}`;
+  const finishedKey = `cbt_finished_${examId}_${studentExamId}`;
+  const answersKey = `cbt_answers_${examId}_${studentExamId}`;
+
   // 1. State Navigasi & Status Pengerjaan
   const [isExamStarted, setIsExamStarted] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 2. State Data Soal & Jawaban
+  // Status Apakah Ujian Sudah Diselesaikan
+  const [isExamFinished, setIsExamFinished] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(finishedKey) === 'true';
+    }
+    return false;
+  });
+
+  // 2. State Data Soal & Jawaban (Persistent dengan LocalStorage)
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<{ [key: number]: any }>({});
+  const [answers, setAnswers] = useState<{ [key: number]: any }>(() => {
+    if (typeof window !== 'undefined') {
+      const savedAns = localStorage.getItem(answersKey);
+      if (savedAns) {
+        try { return JSON.parse(savedAns); } catch (e) { return {}; }
+      }
+    }
+    return {};
+  });
 
-  // 3. Timer Ujian (CountDown 90 Menit = 54000 detik)
-  const [timeLeft, setTimeLeft] = useState(90 * 60);
+  // 3. Timer Ujian (Persistent Countdown 90 Menit = 5400 detik)
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const savedTime = localStorage.getItem(timerKey);
+      if (savedTime !== null) {
+        return Number(savedTime);
+      }
+    }
+    return 90 * 60;
+  });
 
   // 4. State Modal Konfirmasi & Rekap Hasil Ujian
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -56,9 +85,9 @@ function ExamContent() {
       });
   }, [examId]);
 
-  // 2. Timer Ujian (Otomatis Mati jika modal hasil terbuka)
+  // 2. Timer Ujian (Berjalan dari pertama klik sampai selesai, berhenti jika ujian selesai)
   useEffect(() => {
-    if (!isExamStarted || isResultModalOpen) return;
+    if (!isExamStarted || isExamFinished || isResultModalOpen) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -67,12 +96,14 @@ function ExamContent() {
           handleFinishExam(); // Auto submit jika waktu habis
           return 0;
         }
-        return prev - 1;
+        const nextTime = prev - 1;
+        localStorage.setItem(timerKey, String(nextTime));
+        return nextTime;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isExamStarted, isResultModalOpen]);
+  }, [isExamStarted, isExamFinished, isResultModalOpen, timerKey]);
 
   // Format Waktu (HH:MM:SS)
   const formatTime = (seconds: number) => {
@@ -82,8 +113,9 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
-  // Helper Simpan Jawaban Ke Database
+  // Helper Simpan Jawaban Ke Database & LocalStorage
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
+    if (isExamFinished) return; // Jangan simpan jika sudah selesai
     try {
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/student/answer', {
         method: 'POST',
@@ -116,9 +148,7 @@ function ExamContent() {
         try {
           const parsed = JSON.parse(key);
           if (typeof parsed === 'string') key = parsed;
-        } catch (e) {
-          // Tetap gunakan string biasa
-        }
+        } catch (e) {}
       }
       return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
     }
@@ -163,9 +193,7 @@ function ExamContent() {
           if (typeof parsed === 'object' && parsed !== null) {
             keyObj = parsed;
           }
-        } catch (e) {
-          // Abaikan
-        }
+        } catch (e) {}
       }
 
       const userObj = typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns)
@@ -196,9 +224,25 @@ function ExamContent() {
     return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
   };
 
+  // Helper untuk mendapatkan kunci jawaban format string murni untuk ditampilkan saat pembahasan
+  const getCorrectKeyString = (q: any) => {
+    let key = q.kunci_jawaban;
+    if (key === undefined || key === null) return '-';
+    if (typeof key === 'string') {
+      try {
+        const parsed = JSON.parse(key);
+        if (typeof parsed === 'string') return parsed;
+        if (Array.isArray(parsed)) return parsed.join(', ');
+      } catch (e) {}
+      return key;
+    }
+    if (Array.isArray(key)) return key.join(', ');
+    return String(key);
+  };
+
   // 4. Selesai Ujian & Hitung Nilai Akhir
   const handleFinishExam = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
 
     try {
@@ -230,23 +274,24 @@ function ExamContent() {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Server error response:', errorText);
-        throw new Error(`Server mengembalikan status ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({ success: true }));
 
-      if (result.success) {
-        setExamResultData({
-          score: calculatedScore,
-          status: result.status_kesiapan || 'Rendah',
-        });
-        setIsResultModalOpen(true); 
-      } else {
-        alert('Gagal mengakhiri ujian: ' + (result.message || 'Terjadi kesalahan pada server'));
-      }
+      // Set status selesai dan simpan ke localStorage
+      setIsExamFinished(true);
+      localStorage.setItem(finishedKey, 'true');
+
+      setExamResultData({
+        score: calculatedScore,
+        status: result.status_kesiapan || 'Rendah',
+      });
+      setIsResultModalOpen(true); 
     } catch (error: any) {
       console.error('Error saat menyelesaikan ujian:', error);
-      alert('Terjadi kesalahan koneksi/server saat mengirim jawaban: ' + error.message);
+      setIsExamFinished(true);
+      localStorage.setItem(finishedKey, 'true');
+      setIsResultModalOpen(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -347,29 +392,35 @@ function ExamContent() {
 
   // Handler Choice Single
   const handleSingleChoice = (label: string) => {
+    if (isExamFinished) return; // Blokir ubah jawaban jika sudah selesai
     const updatedAnswers = { ...answers, [currentQ.id]: label };
     setAnswers(updatedAnswers);
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, label);
   };
 
   // Handler Multiple Choice
   const handleMultipleChoice = (label: string) => {
+    if (isExamFinished) return;
     const list = Array.isArray(currentAns) ? currentAns : [];
     const isChecked = list.includes(label);
     const next = isChecked ? list.filter((a: string) => a !== label) : [...list, label];
     const updatedAnswers = { ...answers, [currentQ.id]: next };
     setAnswers(updatedAnswers);
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, next);
   };
 
   // Handler Benar/Salah
   const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
+    if (isExamFinished) return;
     const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
       ? (currentAns as { [key: string]: boolean })
       : {};
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
     setAnswers(updatedAnswers);
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
@@ -381,8 +432,8 @@ function ExamContent() {
         <h1 className="text-lg md:text-xl font-bold text-[#327ca6] mb-1 text-center">
           Paket Ujian CBT - Ruang Belajar
         </h1>
-        <div className="text-red-500 font-extrabold text-lg md:text-xl mb-4 tracking-wider">
-          {formatTime(timeLeft)}
+        <div className={`font-extrabold text-lg md:text-xl mb-4 tracking-wider ${isExamFinished ? 'text-gray-400' : 'text-red-500'}`}>
+          {isExamFinished ? 'Ujian Telah Selesai (Waktu Berhenti)' : formatTime(timeLeft)}
         </div>
 
         <div className="flex items-center gap-3">
@@ -396,13 +447,23 @@ function ExamContent() {
             Daftar Soal
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsConfirmModalOpen(true)}
-            className="bg-white border-2 border-rose-500 text-rose-500 hover:bg-rose-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
-          >
-            Akhiri Ujian
-          </button>
+          {!isExamFinished ? (
+            <button
+              type="button"
+              onClick={() => setIsConfirmModalOpen(true)}
+              className="bg-white border-2 border-rose-500 text-rose-500 hover:bg-rose-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
+            >
+              Akhiri Ujian
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsResultModalOpen(true)}
+              className="bg-white border-2 border-sky-500 text-sky-500 hover:bg-sky-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
+            >
+              Lihat Hasil & Pembahasan
+            </button>
+          )}
         </div>
       </header>
 
@@ -421,6 +482,19 @@ function ExamContent() {
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6 md:p-8 min-h-[420px] flex flex-col justify-between">
           <div>
             
+            {/* Banner Review Mode jika Ujian Sudah Selesai */}
+            {isExamFinished && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm flex justify-between items-center">
+                <span>Mode Pembahasan: Anda sedang meninjau soal. Waktu berhenti dan jawaban terkunci.</span>
+                <button
+                  onClick={() => setIsResultModalOpen(true)}
+                  className="bg-amber-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-amber-700"
+                >
+                  Kembali ke Rekap
+                </button>
+              </div>
+            )}
+
             {/* Gambar Soal */}
             {currentQ.image_url && currentQ.image_url.trim() !== '' && (
               <div className="mb-6">
@@ -449,20 +523,39 @@ function ExamContent() {
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
                   const isSelected = currentAns === opt.label;
+                  const isCorrectKey = isExamFinished && String(opt.label).trim().toUpperCase() === String(currentQ.kunci_jawaban || '').trim().toUpperCase();
+                  
+                  let optionStyle = 'border-slate-300 group-hover:border-slate-400 bg-white';
+                  let textStyle = 'text-slate-700';
+
+                  if (isExamFinished) {
+                    if (isCorrectKey) {
+                      optionStyle = 'border-emerald-500 bg-emerald-100';
+                      textStyle = 'text-emerald-900 font-bold';
+                    } else if (isSelected && !isCorrectKey) {
+                      optionStyle = 'border-rose-500 bg-rose-100';
+                      textStyle = 'text-rose-900 font-bold';
+                    }
+                  } else if (isSelected) {
+                    optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
+                  }
+
                   return (
                     <div
                       key={opt.label}
                       onClick={() => handleSingleChoice(opt.label)}
-                      className="flex items-start gap-3 cursor-pointer group py-1"
+                      className={`flex items-start gap-3 cursor-pointer group py-2 px-3 rounded-xl border transition-all ${optionStyle}`}
                     >
                       <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                        isSelected ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 group-hover:border-slate-400'
+                        isSelected || isCorrectKey ? 'border-current' : 'border-slate-300'
                       }`}>
-                        {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+                        {isSelected && <div className="w-2 h-2 rounded-full bg-current" />}
                       </div>
-                      <span className="text-sm md:text-base text-slate-700 leading-snug">
+                      <span className={`text-sm md:text-base leading-snug ${textStyle}`}>
                         <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
+                        {isExamFinished && isCorrectKey && <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">Kunci Benar</span>}
+                        {isExamFinished && isSelected && !isCorrectKey && <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">Jawaban Anda (Salah)</span>}
                       </span>
                     </div>
                   );
@@ -555,6 +648,14 @@ function ExamContent() {
               </div>
             )}
 
+            {/* Info Kunci Jawaban jika Ujian Sudah Selesai */}
+            {isExamFinished && (
+              <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                <p className="font-bold text-slate-700 mb-1">Kunci Jawaban Sistem:</p>
+                <p className="text-emerald-700 font-semibold">{getCorrectKeyString(currentQ)}</p>
+              </div>
+            )}
+
           </div>
         </div>
       </main>
@@ -569,6 +670,15 @@ function ExamContent() {
           >
             Sebelumnya
           </button>
+
+          {isExamFinished && (
+            <button
+              onClick={() => setIsResultModalOpen(true)}
+              className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-full text-sm transition shadow-sm cursor-pointer"
+            >
+              Buka Rekap Hasil
+            </button>
+          )}
 
           <button
             disabled={currentIndex === questions.length - 1}
@@ -631,10 +741,21 @@ function ExamContent() {
               })}
             </div>
 
-            <div className="mt-6 pt-3 border-t flex justify-end">
+            <div className="mt-6 pt-3 border-t flex justify-between">
+              {isExamFinished && (
+                <button
+                  onClick={() => {
+                    setShowQuestionModal(false);
+                    setShowDiscussionModal(true);
+                  }}
+                  className="px-4 py-2 bg-emerald-100 text-emerald-800 font-bold rounded-full text-xs hover:bg-emerald-200 cursor-pointer"
+                >
+                  Buka Pembahasan Warna
+                </button>
+              )}
               <button
                 onClick={() => setShowQuestionModal(false)}
-                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-full text-sm cursor-pointer"
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-full text-sm cursor-pointer ml-auto"
               >
                 Tutup
               </button>
@@ -689,8 +810,8 @@ function ExamContent() {
                 Paket Ujian CBT - Ruang Belajar
               </h1>
               <div className="flex justify-between items-center text-xs md:text-sm text-sky-500 font-medium px-2 mt-2">
-                <span>Paket 1 Ujian CBT - Tarka Fest</span>
-                <span className="text-gray-400 font-normal">07/10/2026</span>
+                <span>Paket Ujian CBT</span>
+                <span className="text-gray-400 font-normal">Selesai</span>
               </div>
             </div>
 
@@ -742,7 +863,13 @@ function ExamContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => {
+                    // Reset localStorage untuk ujian baru jika ingin diulang
+                    localStorage.removeItem(timerKey);
+                    localStorage.removeItem(finishedKey);
+                    localStorage.removeItem(answersKey);
+                    window.location.reload();
+                  }}
                   className="flex-1 sm:flex-none bg-[#38bdf8] hover:bg-[#0284c7] text-white font-semibold px-6 py-2.5 rounded-full shadow-sm transition cursor-pointer text-sm"
                 >
                   Ulangi
@@ -762,7 +889,7 @@ function ExamContent() {
         </div>
       )}
 
-      {/* MODAL POP-UP PEMBAHASAN (SINKRON DENGAN HASIL NILAI) */}
+      {/* MODAL POP-UP PEMBAHASAN (SINKRON DENGAN WARNA BENAR/SALAH) */}
       {showDiscussionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 md:p-8 text-center animate-in fade-in zoom-in duration-200">
@@ -777,30 +904,13 @@ function ExamContent() {
               </svg>
             </button>
 
-            <h3 className="text-gray-500 font-medium text-lg mb-4">Daftar Nomor Soal</h3>
-
-            <div className="flex items-center justify-center gap-4 mb-6">
-              <button
-                type="button"
-                className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
-              >
-                &lt;
-              </button>
-              <span className="text-gray-600 font-medium text-sm">
-                Total : {questions.length} Soal
-              </span>
-              <button
-                type="button"
-                className="w-8 h-8 rounded-lg border border-orange-400 text-orange-500 flex items-center justify-center text-sm font-bold hover:bg-orange-50 transition cursor-pointer"
-              >
-                &gt;
-              </button>
-            </div>
+            <h3 className="text-gray-700 font-bold text-lg mb-1">Pembahasan Daftar Nomor Soal</h3>
+            <p className="text-xs text-gray-500 mb-4">Klik nomor merah atau hijau untuk melihat detail soal & kunci jawaban</p>
 
             <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
               {questions.map((q, idx) => {
                 const userAns = answers[q.id];
-                let badgeColor = 'border-gray-300 text-gray-400 bg-gray-50'; // Tidak dijawab (Abu-abu)
+                let badgeColor = 'border-gray-300 text-gray-400 bg-gray-50'; // Tidak dijawab
 
                 if (userAns !== undefined && userAns !== null) {
                   let isNotEmpty = false;
@@ -852,9 +962,13 @@ function ExamContent() {
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 font-normal">
-              *Klik pada nomor yang <span className="text-rose-500 font-semibold">salah</span> untuk melihat kunci jawaban
-            </p>
+            <button
+              type="button"
+              onClick={() => setShowDiscussionModal(false)}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-full text-sm cursor-pointer"
+            >
+              Tutup
+            </button>
 
           </div>
         </div>
