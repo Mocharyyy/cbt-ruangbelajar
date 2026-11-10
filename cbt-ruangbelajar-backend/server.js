@@ -648,31 +648,31 @@ app.get('/api/leaderboard', async (req, res) => {
   try {
     const currentUserId = req.query.user_id;
 
-    // 1. Ambil Top 10 Leaderboard (Nilai tertinggi, durasi tercepat)
+    // 1. Ambil Data Leaderboard Keseluruhan
     const topQuery = `
       SELECT 
-        users.id AS user_id,
-        users.nama AS nama_siswa, 
-        SUM(student_exams.score) AS score, 
-        SUM(student_exams.duration) AS duration,
-        MAX(student_exams.status_bayes) AS status_bayes,
-        COUNT(student_exams.id) AS total_ujian_dikerjakan
-      FROM student_exams 
-      JOIN users ON student_exams.user_id = users.id 
-      WHERE student_exams.status = 'completed'
-      GROUP BY users.id, users.nama 
+        u.id AS user_id,
+        u.nama AS nama_siswa, 
+        SUM(se.score) AS score, 
+        SUM(se.duration) AS duration,
+        MAX(se.status_bayes) AS status_bayes,
+        COUNT(se.id) AS total_ujian_dikerjakan
+      FROM student_exams se
+      JOIN users u ON se.user_id = u.id 
+      WHERE se.status = 'completed'
+      GROUP BY u.id, u.nama 
       ORDER BY score DESC, duration ASC 
     `;
     const [allRankings] = await db.query(topQuery);
     const leaderboardTop10 = allRankings.slice(0, 10);
 
-    // 2. Hitung total seluruh siswa yang pernah menyelesaikan ujian / terdaftar
+    // 2. Hitung total siswa yang selesai
     const [totalUsersRows] = await db.query(`SELECT COUNT(DISTINCT user_id) AS total FROM student_exams WHERE status = 'completed'`);
-    const totalSiswaSelesai = totalUsersRows[0].total || allRankings.length;
+    const totalSiswaSelesai = totalUsersRows[0]?.total || allRankings.length;
 
-    // 3. Jika ada user_id yang sedang login, cari posisi ranking mereka jika di luar 10 besar
+    // 3. Cari posisi ranking user yang sedang login jika ada
     let userRankInfo = null;
-    if (currentUserId) {
+    if (currentUserId && currentUserId !== 'undefined' && currentUserId !== 'null') {
       const userIndex = allRankings.findIndex(r => String(r.user_id) === String(currentUserId));
       if (userIndex !== -1) {
         userRankInfo = {
@@ -689,8 +689,8 @@ app.get('/api/leaderboard', async (req, res) => {
       totalSiswa: totalSiswaSelesai
     });
   } catch (error) {
-    console.error('Error leaderboard:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error leaderboard API:', error);
+    res.status(500).json({ success: false, message: error.message, leaderboard: [], userRank: null, totalSiswa: 0 });
   }
 });
 
