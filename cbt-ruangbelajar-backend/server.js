@@ -643,9 +643,13 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
   }
 });
 
+// Endpoint Papan Peringkat (Leaderboard) dengan Top 10 + Deteksi Ranking User Tertentu
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const query = `
+    const currentUserId = req.query.user_id;
+
+    // 1. Ambil Top 10 Leaderboard (Nilai tertinggi, durasi tercepat)
+    const topQuery = `
       SELECT 
         users.id AS user_id,
         users.nama AS nama_siswa, 
@@ -658,10 +662,32 @@ app.get('/api/leaderboard', async (req, res) => {
       WHERE student_exams.status = 'completed'
       GROUP BY users.id, users.nama 
       ORDER BY score DESC, duration ASC 
-      LIMIT 10
     `;
-    const [rows] = await db.query(query);
-    res.json({ success: true, leaderboard: rows });
+    const [allRankings] = await db.query(topQuery);
+    const leaderboardTop10 = allRankings.slice(0, 10);
+
+    // 2. Hitung total seluruh siswa yang pernah menyelesaikan ujian / terdaftar
+    const [totalUsersRows] = await db.query(`SELECT COUNT(DISTINCT user_id) AS total FROM student_exams WHERE status = 'completed'`);
+    const totalSiswaSelesai = totalUsersRows[0].total || allRankings.length;
+
+    // 3. Jika ada user_id yang sedang login, cari posisi ranking mereka jika di luar 10 besar
+    let userRankInfo = null;
+    if (currentUserId) {
+      const userIndex = allRankings.findIndex(r => String(r.user_id) === String(currentUserId));
+      if (userIndex !== -1) {
+        userRankInfo = {
+          rank: userIndex + 1,
+          ...allRankings[userIndex]
+        };
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      leaderboard: leaderboardTop10, 
+      userRank: userRankInfo,
+      totalSiswa: totalSiswaSelesai
+    });
   } catch (error) {
     console.error('Error leaderboard:', error);
     res.status(500).json({ success: false, message: error.message });
