@@ -17,7 +17,7 @@ function ExamContent() {
   const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '1');
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // 1. Ambil User ID & Inisialisasi Sesi Ujian Unik per User (Mencegah akun baru terkontaminasi akun lama)
+  // 1. Ambil User ID & Inisialisasi Sesi Ujian Unik per User
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
@@ -34,7 +34,6 @@ function ExamContent() {
     }
   }, []);
 
-  // Jika belum ada studentExamId dari URL, fetch ke backend untuk membuat sesi ujian unik siswa ini
   useEffect(() => {
     if (currentUserId === 'guest' || urlStudentExamId) {
       if (urlStudentExamId) setStudentExamId(urlStudentExamId);
@@ -68,24 +67,18 @@ function ExamContent() {
   const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
   const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
 
-  // 1. State Navigasi & Status Pengerjaan
   const [isExamStarted, setIsExamStarted] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Status Apakah Ujian Sudah Diselesaikan (Unik per User)
   const [isExamFinished, setIsExamFinished] = useState(false);
 
-  // 2. State Data Soal & Jawaban
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<{ [key: number]: any }>({});
-
-  // 3. Timer Ujian (90 Menit = 5400 detik)
   const [timeLeft, setTimeLeft] = useState(90 * 60);
 
-  // 4. State Modal Konfirmasi & Rekap Hasil Ujian
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [examResultData, setExamResultData] = useState({
@@ -93,7 +86,6 @@ function ExamContent() {
     status: 'Rendah',
   });
 
-  // Sinkronisasi LocalStorage khusus akun user yang sedang aktif
   useEffect(() => {
     if (isInitializing) return;
 
@@ -113,7 +105,6 @@ function ExamContent() {
     }
   }, [isInitializing, finishedKey, answersKey, timerKey]);
 
-  // Fetch Soal Ujian dari Backend
   useEffect(() => {
     if (!examId) return;
 
@@ -135,7 +126,6 @@ function ExamContent() {
       });
   }, [examId]);
 
-  // Timer Ujian Berjalan
   useEffect(() => {
     if (!isExamStarted || isExamFinished || isResultModalOpen || isInitializing) return;
 
@@ -155,7 +145,6 @@ function ExamContent() {
     return () => clearInterval(timer);
   }, [isExamStarted, isExamFinished, isResultModalOpen, isInitializing, timerKey]);
 
-  // Format Waktu (HH:MM:SS)
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
@@ -163,7 +152,6 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
-  // Helper Simpan Jawaban Ke Database & LocalStorage
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
     if (isExamFinished) return;
     try {
@@ -181,7 +169,6 @@ function ExamContent() {
     }
   };
 
-  // Validasi Jawaban Benar/Salah (Mendukung 3 Tipe Soal)
   const checkIsCorrect = (q: any, userAns: any) => {
     if (userAns === undefined || userAns === null) return false;
     let key = q.kunci_jawaban;
@@ -273,7 +260,6 @@ function ExamContent() {
     return String(key);
   };
 
-  // Selesai Ujian & Kalkulasi Skor Presisi (Skala 100 / Skala Asli)
   const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
@@ -289,7 +275,6 @@ function ExamContent() {
         }
       });
 
-      // Perhitungan skor akurat berbasis persentase atau bobot asal (Skala 100)
       const totalSoal = questions.length > 0 ? questions.length : 1;
       const calculatedScore = Math.round((correctCount / totalSoal) * 100);
 
@@ -329,7 +314,6 @@ function ExamContent() {
     );
   }
 
-  // LAYAR 1: PETUNJUK PENGERJAAN
   if (!isExamStarted) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex flex-col items-center justify-center p-4 font-sans">
@@ -379,7 +363,6 @@ function ExamContent() {
     );
   }
 
-  // LAYAR 2: LEMBAR PENGERJAAN SOAL
   const currentQ = questions[currentIndex];
   const currentAns = answers[currentQ.id];
 
@@ -508,6 +491,7 @@ function ExamContent() {
               </div>
             </div>
 
+            {/* A. TIPE SINGLE CHOICE */}
             {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
@@ -552,6 +536,81 @@ function ExamContent() {
               </div>
             )}
 
+            {/* B. TIPE MULTIPLE CHOICE (PILIHAN GANDA KOMPLEKS) */}
+            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
+              <div className="space-y-3 pl-2">
+                {optionsList.map((opt) => {
+                  const list = Array.isArray(currentAns) ? currentAns : [];
+                  const isChecked = list.includes(opt.label);
+                  return (
+                    <div
+                      key={opt.label}
+                      onClick={() => handleMultipleChoice(opt.label)}
+                      className="flex items-start gap-3 cursor-pointer group py-2 px-3 rounded-xl border border-slate-300 hover:border-slate-400 bg-white"
+                    >
+                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                        isChecked ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300'
+                      }`}>
+                        {isChecked && (
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-sm md:text-base text-slate-700 leading-snug">
+                        <span className="font-bold mr-1.5">{opt.label}.</span>
+                        {opt.text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* C. TIPE TRUE / FALSE */}
+            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
+              <div className="overflow-x-auto my-4">
+                <table className="w-full border-collapse border border-slate-200">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 text-sm border-b">
+                      <th className="p-3 border-r text-left font-bold">Pernyataan</th>
+                      <th className="p-3 w-28 text-center font-bold">Benar</th>
+                      <th className="p-3 w-28 text-center font-bold">Salah</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {optionsList.map((opt) => (
+                      <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                        <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleTrueFalse(opt.label, true)}
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                              currentAns?.[opt.label] === true ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {currentAns?.[opt.label] === true && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                          </button>
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleTrueFalse(opt.label, false)}
+                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                              currentAns?.[opt.label] === false ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {currentAns?.[opt.label] === false && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {isExamFinished && (
               <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm">
                 <p className="font-bold text-slate-700 mb-1">Kunci Jawaban Sistem:</p>
@@ -582,7 +641,6 @@ function ExamContent() {
         </div>
       </footer>
 
-      {/* Modal Daftar Soal */}
       {showQuestionModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border">
@@ -608,7 +666,6 @@ function ExamContent() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Akhiri Ujian */}
       {isConfirmModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl p-6 text-center max-w-md w-full">
@@ -627,7 +684,6 @@ function ExamContent() {
         </div>
       )}
 
-      {/* Modal Rekap Hasil */}
       {isResultModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white w-full max-w-md rounded-2xl p-6 text-center">
