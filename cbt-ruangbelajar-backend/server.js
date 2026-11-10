@@ -643,25 +643,25 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
   }
 });
 
-// Endpoint Papan Peringkat (Leaderboard) dengan Top 10 + Deteksi Ranking User Tertentu
+// Endpoint Papan Peringkat (Leaderboard) yang Menyesuaikan Struktur Kolom Database
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const currentUserId = req.query.user_id;
 
-    // 1. Ambil Data Leaderboard Keseluruhan
+    // 1. Ambil Data Leaderboard Keseluruhan (Tanpa kolom duration jika tidak ada di DB)
     const topQuery = `
       SELECT 
         u.id AS user_id,
         u.nama AS nama_siswa, 
         SUM(se.score) AS score, 
-        SUM(se.duration) AS duration,
+        0 AS duration,
         MAX(se.status_bayes) AS status_bayes,
         COUNT(se.id) AS total_ujian_dikerjakan
       FROM student_exams se
       JOIN users u ON se.user_id = u.id 
       WHERE se.status = 'completed'
       GROUP BY u.id, u.nama 
-      ORDER BY score DESC, duration ASC 
+      ORDER BY score DESC
     `;
     const [allRankings] = await db.query(topQuery);
     const leaderboardTop10 = allRankings.slice(0, 10);
