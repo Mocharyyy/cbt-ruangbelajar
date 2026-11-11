@@ -7,17 +7,14 @@ function ExamContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  // Parameter URL exam_id
   const examId = searchParams.get('exam_id') || searchParams.get('examId') || '1';
   const urlStudentExamId = searchParams.get('studentExamId');
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
-  // State untuk menyimpan ID User yang sedang aktif login
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '1');
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // 1. Ambil User ID & Inisialisasi Sesi Ujian Unik per User
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
@@ -54,7 +51,6 @@ function ExamContent() {
         if (data.success && data.student_exam_id) {
           setStudentExamId(String(data.student_exam_id));
         } else if (data.is_completed) {
-          // Jika sudah selesai, langsung kunci ujian dan buka mode pembahasan/rekap
           setIsExamFinished(true);
           setStudentExamId(String(data.student_exam_id));
         }
@@ -66,7 +62,6 @@ function ExamContent() {
       });
   }, [currentUserId, examId, urlStudentExamId]);
 
-  // Key LocalStorage Unik Berdasarkan User ID + Exam ID + Student Exam ID
   const timerKey = `cbt_timer_${currentUserId}_${examId}_${studentExamId}`;
   const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
   const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
@@ -197,11 +192,9 @@ function ExamContent() {
       } else if (typeof key === 'string') {
         try {
           const parsed = JSON.parse(key);
-          if (Array.isArray(parsed)) {
-            keyArr = parsed.map((k: any) => String(k).trim().toUpperCase());
-          } else {
-            keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
-          }
+          keyArr = Array.isArray(parsed) 
+            ? parsed.map((k: any) => String(k).trim().toUpperCase()) 
+            : key.split(',').map((k: any) => k.trim().toUpperCase());
         } catch (e) {
           keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
         }
@@ -216,32 +209,44 @@ function ExamContent() {
     }
 
     if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
-      let keyObj: { [key: string]: boolean } = {};
+      let keyObj: { [key: string]: any } = {};
       if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
         keyObj = key;
       } else if (typeof key === 'string') {
         try {
           const parsed = JSON.parse(key);
           if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
-        } catch (e) {}
+        } catch (e) {
+          const parts = key.split(',').map(v => v.trim().toUpperCase());
+          optionsList.forEach((opt, idx) => {
+            if (parts[idx]) {
+              keyObj[opt.label] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
+            }
+          });
+        }
       }
 
       const userObj = typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns) ? userAns : {};
       const keyKeys = Object.keys(keyObj);
-      const userKeys = Object.keys(userObj);
 
       if (keyKeys.length === 0) return false;
 
       for (const k of keyKeys) {
         const normalizedKey = k.trim().toUpperCase();
-        let matchedVal = undefined;
-        for (const uk of userKeys) {
+        let matchedCorrect = keyObj[k];
+        if (typeof matchedCorrect === 'string') {
+          matchedCorrect = matchedCorrect.toUpperCase() === 'B' || matchedCorrect.toUpperCase() === 'BENAR' || matchedCorrect === 'true';
+        }
+
+        let matchedUser = undefined;
+        for (const uk of Object.keys(userObj)) {
           if (uk.trim().toUpperCase() === normalizedKey) {
-            matchedVal = userObj[uk];
+            matchedUser = userObj[uk];
             break;
           }
         }
-        if (matchedVal !== keyObj[k]) return false;
+
+        if (Boolean(matchedUser) !== Boolean(matchedCorrect)) return false;
       }
       return true;
     }
@@ -281,8 +286,6 @@ function ExamContent() {
 
       const totalSoal = questions.length > 0 ? questions.length : 1;
       const calculatedScore = Math.round((correctCount / totalSoal) * 100);
-      
-      // Hitung total detik yang dihabiskan
       const totalTimeSpent = (90 * 60) - timeLeft;
 
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
@@ -615,9 +618,9 @@ function ExamContent() {
               );
             })()}
 
-            {/* C. TIPE TRUE / FALSE DENGAN KOREKSI WARNA */}
+            {/* C. TIPE TRUE / FALSE DENGAN KOREKSI WARNA AKURAT */}
             {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (() => {
-              let keyObj: { [key: string]: boolean } = {};
+              let keyObj: { [key: string]: any } = {};
               const rawKey = currentQ.kunci_jawaban;
               if (typeof rawKey === 'object' && rawKey !== null && !Array.isArray(rawKey)) {
                 keyObj = rawKey;
@@ -625,7 +628,14 @@ function ExamContent() {
                 try {
                   const parsed = JSON.parse(rawKey);
                   if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
-                } catch (e) {}
+                } catch (e) {
+                  const parts = rawKey.split(',').map(v => v.trim().toUpperCase());
+                  optionsList.forEach((opt, idx) => {
+                    if (parts[idx]) {
+                      keyObj[opt.label] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
+                    }
+                  });
+                }
               }
 
               const userObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns) ? currentAns : {};
@@ -647,7 +657,11 @@ function ExamContent() {
                         let correctVal = undefined;
                         for (const k of Object.keys(keyObj)) {
                           if (k.trim().toUpperCase() === optLabel) {
-                            correctVal = keyObj[k];
+                            let val = keyObj[k];
+                            if (typeof val === 'string') {
+                              val = val.toUpperCase() === 'B' || val.toUpperCase() === 'BENAR' || val === 'true';
+                            }
+                            correctVal = Boolean(val);
                             break;
                           }
                         }
@@ -655,10 +669,12 @@ function ExamContent() {
                         let userVal = undefined;
                         for (const uk of Object.keys(userObj)) {
                           if (uk.trim().toUpperCase() === optLabel) {
-                            userVal = userObj[uk];
+                            userVal = Boolean(userObj[uk]);
                             break;
                           }
                         }
+
+                        const isRowCorrect = userVal !== undefined && userVal === correctVal;
 
                         return (
                           <tr key={opt.label} className="border-b hover:bg-slate-50/50">
@@ -669,8 +685,8 @@ function ExamContent() {
                                 <div className="text-xs mt-1">
                                   <span className="text-emerald-700 font-semibold">Kunci: {correctVal === true ? 'Benar' : 'Salah'}</span>
                                   {userVal !== undefined && (
-                                    <span className={`ml-2 px-1.5 py-0.5 rounded ${userVal === correctVal ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                                      {userVal === correctVal ? '✓ Sesuai' : '✗ Tidak Sesuai'}
+                                    <span className={`ml-2 px-1.5 py-0.5 rounded font-bold ${isRowCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                      {isRowCorrect ? '✓ Sesuai (Benar)' : '✗ Tidak Sesuai (Salah)'}
                                     </span>
                                   )}
                                 </div>
@@ -682,7 +698,7 @@ function ExamContent() {
                                 onClick={() => handleTrueFalse(opt.label, true)}
                                 className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
                                   userVal === true 
-                                    ? (isExamFinished ? (correctVal === true ? 'border-emerald-600 bg-emerald-600' : 'border-rose-600 bg-rose-600') : 'border-[#327ca6] bg-[#327ca6]')
+                                    ? (isExamFinished ? (correctVal === true ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-rose-600 bg-rose-600 text-white') : 'border-[#327ca6] bg-[#327ca6]')
                                     : (isExamFinished && correctVal === true ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
                                 }`}
                               >
@@ -695,7 +711,7 @@ function ExamContent() {
                                 onClick={() => handleTrueFalse(opt.label, false)}
                                 className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
                                   userVal === false 
-                                    ? (isExamFinished ? (correctVal === false ? 'border-emerald-600 bg-emerald-600' : 'border-rose-600 bg-rose-600') : 'border-[#327ca6] bg-[#327ca6]')
+                                    ? (isExamFinished ? (correctVal === false ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-rose-600 bg-rose-600 text-white') : 'border-[#327ca6] bg-[#327ca6]')
                                     : (isExamFinished && correctVal === false ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
                                 }`}
                               >
@@ -784,7 +800,6 @@ function ExamContent() {
         </div>
       )}
 
-      {/* MODAL REKAP HASIL UJIAN LENGKAP */}
       {isResultModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100 animate-in fade-in zoom-in duration-200">
@@ -872,7 +887,6 @@ function ExamContent() {
         </div>
       )}
 
-      {/* MODAL POP-UP PEMBAHASAN (SINKRON DENGAN WARNA BENAR/SALAH) */}
       {showDiscussionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 md:p-8 text-center animate-in fade-in zoom-in duration-200">
