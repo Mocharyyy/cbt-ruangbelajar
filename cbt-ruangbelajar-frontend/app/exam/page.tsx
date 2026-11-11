@@ -34,7 +34,7 @@ function ExamContent() {
     }
   }, []);
 
-useEffect(() => {
+  useEffect(() => {
     if (currentUserId === 'guest' || urlStudentExamId) {
       if (urlStudentExamId) setStudentExamId(urlStudentExamId);
       setIsInitializing(false);
@@ -264,7 +264,7 @@ useEffect(() => {
     return String(key);
   };
 
- const handleFinishExam = async () => {
+  const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
 
@@ -282,7 +282,7 @@ useEffect(() => {
       const totalSoal = questions.length > 0 ? questions.length : 1;
       const calculatedScore = Math.round((correctCount / totalSoal) * 100);
       
-      // Hitung total detik yang dihabiskan (misal alokasi waktu awal dikurang sisa waktu)
+      // Hitung total detik yang dihabiskan
       const totalTimeSpent = (90 * 60) - timeLeft;
 
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
@@ -313,7 +313,7 @@ useEffect(() => {
       setIsSubmitting(false);
     }
   };
-  
+
   if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
@@ -544,80 +544,172 @@ useEffect(() => {
               </div>
             )}
 
-            {/* B. TIPE MULTIPLE CHOICE */}
-            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (
-              <div className="space-y-3 pl-2">
-                {optionsList.map((opt) => {
-                  const list = Array.isArray(currentAns) ? currentAns : [];
-                  const isChecked = list.includes(opt.label);
-                  return (
-                    <div
-                      key={opt.label}
-                      onClick={() => handleMultipleChoice(opt.label)}
-                      className="flex items-start gap-3 cursor-pointer group py-2 px-3 rounded-xl border border-slate-300 hover:border-slate-400 bg-white"
-                    >
-                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                        isChecked ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300'
-                      }`}>
-                        {isChecked && (
-                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                      <span className="text-sm md:text-base text-slate-700 leading-snug">
-                        <span className="font-bold mr-1.5">{opt.label}.</span>
-                        {opt.text}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {/* B. TIPE MULTIPLE CHOICE DENGAN KOREKSI WARNA */}
+            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (() => {
+              let keyArr: string[] = [];
+              const rawKey = currentQ.kunci_jawaban;
+              if (Array.isArray(rawKey)) {
+                keyArr = rawKey.map((k: any) => String(k).trim().toUpperCase());
+              } else if (typeof rawKey === 'string') {
+                try {
+                  const parsed = JSON.parse(rawKey);
+                  keyArr = Array.isArray(parsed) ? parsed.map((k: any) => String(k).trim().toUpperCase()) : rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                } catch (e) {
+                  keyArr = rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                }
+              }
 
-            {/* C. TIPE TRUE / FALSE */}
-            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (
-              <div className="overflow-x-auto my-4">
-                <table className="w-full border-collapse border border-slate-200">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 text-sm border-b">
-                      <th className="p-3 border-r text-left font-bold">Pernyataan</th>
-                      <th className="p-3 w-28 text-center font-bold">Benar</th>
-                      <th className="p-3 w-28 text-center font-bold">Salah</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {optionsList.map((opt) => (
-                      <tr key={opt.label} className="border-b hover:bg-slate-50/50">
-                        <td className="p-3 border-r text-sm text-slate-700">{opt.text}</td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleTrueFalse(opt.label, true)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
-                              currentAns?.[opt.label] === true ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 bg-white'
-                            }`}
-                          >
-                            {currentAns?.[opt.label] === true && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                          </button>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleTrueFalse(opt.label, false)}
-                            className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
-                              currentAns?.[opt.label] === false ? 'border-[#327ca6] bg-[#327ca6]' : 'border-slate-300 bg-white'
-                            }`}
-                          >
-                            {currentAns?.[opt.label] === false && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                          </button>
-                        </td>
+              const userList = Array.isArray(currentAns) ? currentAns.map((u: any) => String(u).trim().toUpperCase()) : [];
+
+              return (
+                <div className="space-y-3 pl-2">
+                  {optionsList.map((opt) => {
+                    const optLabel = String(opt.label).trim().toUpperCase();
+                    const isChecked = userList.includes(optLabel);
+                    const isCorrectOpt = keyArr.includes(optLabel);
+
+                    let optionStyle = 'border-slate-300 bg-white';
+                    let textStyle = 'text-slate-700';
+
+                    if (isExamFinished) {
+                      if (isCorrectOpt) {
+                        optionStyle = 'border-emerald-500 bg-emerald-100';
+                        textStyle = 'text-emerald-900 font-bold';
+                      } else if (isChecked && !isCorrectOpt) {
+                        optionStyle = 'border-rose-500 bg-rose-100';
+                        textStyle = 'text-rose-900 font-bold';
+                      }
+                    } else if (isChecked) {
+                      optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
+                    }
+
+                    return (
+                      <div
+                        key={opt.label}
+                        onClick={() => handleMultipleChoice(opt.label)}
+                        className={`flex items-start gap-3 cursor-pointer group py-2.5 px-3.5 rounded-xl border transition-all ${optionStyle}`}
+                      >
+                        <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                          isChecked || (isExamFinished && isCorrectOpt) ? 'border-current bg-current text-white' : 'border-slate-300'
+                        }`}>
+                          {isChecked && (
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
+                          <span className="font-bold mr-1.5">{opt.label}.</span>
+                          {opt.text}
+                          {isExamFinished && isCorrectOpt && (
+                            <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-semibold">Kunci Benar</span>
+                          )}
+                          {isExamFinished && isChecked && !isCorrectOpt && (
+                            <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-semibold">Jawaban Anda (Salah)</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* C. TIPE TRUE / FALSE DENGAN KOREKSI WARNA */}
+            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (() => {
+              let keyObj: { [key: string]: boolean } = {};
+              const rawKey = currentQ.kunci_jawaban;
+              if (typeof rawKey === 'object' && rawKey !== null && !Array.isArray(rawKey)) {
+                keyObj = rawKey;
+              } else if (typeof rawKey === 'string') {
+                try {
+                  const parsed = JSON.parse(rawKey);
+                  if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
+                } catch (e) {}
+              }
+
+              const userObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns) ? currentAns : {};
+
+              return (
+                <div className="overflow-x-auto my-4">
+                  <table className="w-full border-collapse border border-slate-200 rounded-xl overflow-hidden">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-700 text-sm border-b">
+                        <th className="p-3 border-r text-left font-bold">Pernyataan</th>
+                        <th className="p-3 w-28 text-center font-bold">Benar</th>
+                        <th className="p-3 w-28 text-center font-bold">Salah</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {optionsList.map((opt) => {
+                        const optLabel = String(opt.label).trim().toUpperCase();
+                        
+                        let correctVal = undefined;
+                        for (const k of Object.keys(keyObj)) {
+                          if (k.trim().toUpperCase() === optLabel) {
+                            correctVal = keyObj[k];
+                            break;
+                          }
+                        }
+
+                        let userVal = undefined;
+                        for (const uk of Object.keys(userObj)) {
+                          if (uk.trim().toUpperCase() === optLabel) {
+                            userVal = userObj[uk];
+                            break;
+                          }
+                        }
+
+                        return (
+                          <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                            <td className="p-3 border-r text-sm text-slate-700">
+                              <span className="font-bold mr-1.5">{opt.label}.</span>
+                              {opt.text}
+                              {isExamFinished && (
+                                <div className="text-xs mt-1">
+                                  <span className="text-emerald-700 font-semibold">Kunci: {correctVal === true ? 'Benar' : 'Salah'}</span>
+                                  {userVal !== undefined && (
+                                    <span className={`ml-2 px-1.5 py-0.5 rounded ${userVal === correctVal ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                      {userVal === correctVal ? '✓ Sesuai' : '✗ Tidak Sesuai'}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td className={`p-3 text-center ${isExamFinished && correctVal === true ? 'bg-emerald-50' : ''}`}>
+                              <button
+                                type="button"
+                                onClick={() => handleTrueFalse(opt.label, true)}
+                                className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                                  userVal === true 
+                                    ? (isExamFinished ? (correctVal === true ? 'border-emerald-600 bg-emerald-600' : 'border-rose-600 bg-rose-600') : 'border-[#327ca6] bg-[#327ca6]')
+                                    : (isExamFinished && correctVal === true ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
+                                }`}
+                              >
+                                {userVal === true && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                              </button>
+                            </td>
+                            <td className={`p-3 text-center ${isExamFinished && correctVal === false ? 'bg-emerald-50' : ''}`}>
+                              <button
+                                type="button"
+                                onClick={() => handleTrueFalse(opt.label, false)}
+                                className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                                  userVal === false 
+                                    ? (isExamFinished ? (correctVal === false ? 'border-emerald-600 bg-emerald-600' : 'border-rose-600 bg-rose-600') : 'border-[#327ca6] bg-[#327ca6]')
+                                    : (isExamFinished && correctVal === false ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
+                                }`}
+                              >
+                                {userVal === false && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
             {isExamFinished && (
               <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm">
