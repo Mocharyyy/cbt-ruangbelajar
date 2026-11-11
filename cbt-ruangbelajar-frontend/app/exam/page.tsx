@@ -34,7 +34,7 @@ function ExamContent() {
     }
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     if (currentUserId === 'guest' || urlStudentExamId) {
       if (urlStudentExamId) setStudentExamId(urlStudentExamId);
       setIsInitializing(false);
@@ -52,6 +52,10 @@ function ExamContent() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.student_exam_id) {
+          setStudentExamId(String(data.student_exam_id));
+        } else if (data.is_completed) {
+          // Jika sudah selesai, langsung kunci ujian dan buka mode pembahasan/rekap
+          setIsExamFinished(true);
           setStudentExamId(String(data.student_exam_id));
         }
         setIsInitializing(false);
@@ -260,7 +264,7 @@ function ExamContent() {
     return String(key);
   };
 
-  const handleFinishExam = async () => {
+ const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
 
@@ -277,6 +281,9 @@ function ExamContent() {
 
       const totalSoal = questions.length > 0 ? questions.length : 1;
       const calculatedScore = Math.round((correctCount / totalSoal) * 100);
+      
+      // Hitung total detik yang dihabiskan (misal alokasi waktu awal dikurang sisa waktu)
+      const totalTimeSpent = (90 * 60) - timeLeft;
 
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
         method: 'POST',
@@ -284,6 +291,7 @@ function ExamContent() {
         body: JSON.stringify({
           student_exam_id: Number(studentExamId),
           final_score: calculatedScore,
+          duration: totalTimeSpent > 0 ? totalTimeSpent : 0,
           answers: answers,
         }),
       });
@@ -305,7 +313,7 @@ function ExamContent() {
       setIsSubmitting(false);
     }
   };
-
+  
   if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">

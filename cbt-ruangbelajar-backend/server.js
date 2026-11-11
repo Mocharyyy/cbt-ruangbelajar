@@ -517,17 +517,33 @@ app.get('/api/exams', async (req, res) => {
   }
 });
 
+// 1. START EXAM: Mencegah siswa mengulang ujian yang sudah 'completed'
 app.post('/api/student/start-exam', async (req, res) => {
   try {
     const { user_id, exam_id } = req.body;
 
-    let [existingExam] = await db.query(
+    // Cek apakah ujian ini sudah pernah diselesaikan oleh user
+    const [completedExam] = await db.query(
+      `SELECT id, status FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'completed'`,
+      [user_id, exam_id]
+    );
+
+    if (completedExam.length > 0) {
+      return res.json({
+        success: false,
+        is_completed: true,
+        message: 'Ujian ini sudah diselesaikan. Anda tidak dapat mengulanginya kecuali direset oleh Admin.',
+        student_exam_id: completedExam[0].id
+      });
+    }
+
+    // Cek jika ada sesi yang masih ongoing
+    const [existingExam] = await db.query(
       `SELECT id FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'ongoing'`,
       [user_id, exam_id]
     );
 
     let student_exam_id;
-
     if (existingExam.length > 0) {
       student_exam_id = existingExam[0].id;
     } else {
@@ -540,9 +556,9 @@ app.post('/api/student/start-exam', async (req, res) => {
 
     return res.json({
       success: true,
+      is_completed: false,
       student_exam_id: student_exam_id
     });
-
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -587,41 +603,55 @@ app.post('/api/student/answer', async (req, res) => {
 
 app.post('/api/exam/finish', async (req, res) => {
   try {
-    const { student_exam_id, final_score, answers } = req.body;
-    
-    try {
-      if (db && typeof db.query === 'function') {
-        const answersString = answers ? JSON.stringify(answers) : null;
-        
+    const { student_exam_id, final_score, duration, answers } = req.body;
+    const scoreVal = final_score !== undefined ? final_score : 0;
+    const durationVal = duration !== undefined ? duration : 0;
+    const answersString = answers ? JSON.stringify(answers) : null;
+
+    // Ambil user_id dari student_exam yang sedang dikerjakan
+    const [examRow] = await db.query('SELECT user_id FROM student_exams WHERE id = ?', [student_exam_id]);
+    const userId = examRow.length > 0 ? examRow[0].user_id : null;
+
+    // Update status exam ini menjadi completed
+    await db.query(
+      `UPDATE student_exams 
+       SET score = ?, skor_akhir = ?, status = 'completed', duration = ?, detail_jawaban = ? 
+       WHERE id = ?`,
+      [scoreVal, scoreVal, durationVal, answersString, student_exam_id]
+    );
+
+    // Jika user ditemukan, hitung rata-rata seluruh ujian yang sudah diselesaikan untuk Naive Bayes
+    let bayesStatus = 'Sedang TKA';
+    if (userId) {
+      const [allCompleted] = await db.query(
+        `SELECT score FROM student_exams WHERE user_id = ? AND status = 'completed'`,
+        [userId]
+      );
+
+      if (allCompleted.length > 0) {
+        const totalScoreAll = allCompleted.reduce((acc, curr) => acc + Number(curr.score || 0), 0);
+        const averageScore = totalScoreAll / allCompleted.length;
+
+        // Jalankan Prediksi Naive Bayes berdasarkan rata-rata nilai siswa
+        bayesStatus = await predictNaiveBayes(averageScore, db);
+
+        // Update status_bayes ke semua record exam yang sudah diselesaikan oleh user ini agar sinkron
         await db.query(
-          `UPDATE student_exams SET status = 'completed', skor_akhir = ?, detail_jawaban = ? WHERE id = ?`,
-          [final_score || 0, answersString, student_exam_id]
+          `UPDATE student_exams SET status_bayes = ? WHERE user_id = ? AND status = 'completed'`,
+          [bayesStatus, userId]
         );
       }
-    } catch (dbErr) {
-      try {
-        await db.query(
-          `UPDATE student_exams SET status = 'completed', skor_akhir = ? WHERE id = ?`,
-          [final_score || 0, student_exam_id]
-        );
-      } catch (innerErr) {}
     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'Ujian berhasil diselesaikan',
-      final_score: final_score || 0,
-      status_kesiapan: final_score >= 70 ? 'SIAP' : 'Rendah',
-      answers: answers || {}
+    res.json({ 
+      success: true, 
+      message: 'Ujian berhasil diselesaikan!', 
+      final_score: scoreVal,
+      status_bayes: bayesStatus 
     });
   } catch (error) {
-    console.error('Error in /api/exam/finish:', error);
-    return res.status(200).json({
-      success: true,
-      message: 'Ujian selesai',
-      final_score: req.body?.final_score || 0,
-      answers: req.body?.answers || {}
-    });
+    console.error('Error finish exam:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
