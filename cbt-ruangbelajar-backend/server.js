@@ -643,34 +643,55 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
   }
 });
 
-// Endpoint Papan Peringkat (Leaderboard) yang Menyesuaikan Struktur Kolom Database
+// PERBAIKAN ENDPOINT FINISH EXAM DI SERVER.JS
+app.post('/api/exam/finish', async (req, res) => {
+  try {
+    const { student_exam_id, final_score, skor_akhir, status_bayes, duration, answers } = req.body;
+    
+    // Ambil nilai skor dari salah satu parameter yang dikirim frontend
+    const scoreVal = final_score !== undefined ? final_score : (skor_akhir || 0);
+    const answersString = answers ? JSON.stringify(answers) : null;
+
+    const query = `
+      UPDATE student_exams 
+      SET score = ?, skor_akhir = ?, status_bayes = ?, status = 'completed', duration = ?, detail_jawaban = ? 
+      WHERE id = ?
+    `;
+    await db.query(query, [scoreVal, scoreVal, status_bayes || 'Selesai', duration || 0, answersString, student_exam_id]);
+
+    res.json({ success: true, message: 'Ujian berhasil diselesaikan dan masuk leaderboard!' });
+  } catch (error) {
+    console.error('Error finish exam:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PERBAIKAN ENDPOINT LEADERBOARD DI SERVER.JS
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const currentUserId = req.query.user_id;
 
-    // 1. Ambil Data Leaderboard Keseluruhan (Tanpa kolom duration jika tidak ada di DB)
+    // Ambil data dengan fallback SUM(COALESCE(se.score, se.skor_akhir, 0)) agar aman dari kolom kosong
     const topQuery = `
       SELECT 
         u.id AS user_id,
         u.nama AS nama_siswa, 
-        SUM(se.score) AS score, 
-        0 AS duration,
-        MAX(se.status_bayes) AS status_bayes,
+        SUM(COALESCE(se.score, se.skor_akhir, 0)) AS score, 
+        SUM(COALESCE(se.duration, 0)) AS duration,
+        MAX(COALESCE(se.status_bayes, 'Selesai')) AS status_bayes,
         COUNT(se.id) AS total_ujian_dikerjakan
       FROM student_exams se
       JOIN users u ON se.user_id = u.id 
       WHERE se.status = 'completed'
       GROUP BY u.id, u.nama 
-      ORDER BY score DESC
+      ORDER BY score DESC, duration ASC
     `;
     const [allRankings] = await db.query(topQuery);
     const leaderboardTop10 = allRankings.slice(0, 10);
 
-    // 2. Hitung total siswa yang selesai
     const [totalUsersRows] = await db.query(`SELECT COUNT(DISTINCT user_id) AS total FROM student_exams WHERE status = 'completed'`);
     const totalSiswaSelesai = totalUsersRows[0]?.total || allRankings.length;
 
-    // 3. Cari posisi ranking user yang sedang login jika ada
     let userRankInfo = null;
     if (currentUserId && currentUserId !== 'undefined' && currentUserId !== 'null') {
       const userIndex = allRankings.findIndex(r => String(r.user_id) === String(currentUserId));
@@ -691,24 +712,6 @@ app.get('/api/leaderboard', async (req, res) => {
   } catch (error) {
     console.error('Error leaderboard API:', error);
     res.status(500).json({ success: false, message: error.message, leaderboard: [], userRank: null, totalSiswa: 0 });
-  }
-});
-
-app.post('/api/exams/finish', async (req, res) => {
-  try {
-    const { student_exam_id, skor_akhir, status_bayes, duration } = req.body;
-
-    const query = `
-      UPDATE student_exams 
-      SET score = ?, status_bayes = ?, status = 'completed', duration = ? 
-      WHERE id = ?
-    `;
-    await db.query(query, [skor_akhir, status_bayes, duration || 0, student_exam_id]);
-
-    res.json({ success: true, message: 'Ujian berhasil diselesaikan!' });
-  } catch (error) {
-    console.error('Error finish exam:', error);
-    res.status(500).json({ success: false, message: error.message });
   }
 });
 
