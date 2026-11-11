@@ -666,25 +666,24 @@ app.post('/api/exam/finish', async (req, res) => {
   }
 });
 
-// PERBAIKAN ENDPOINT LEADERBOARD DI SERVER.JS
+// Endpoint Papan Peringkat (Leaderboard) Tanpa Kolom Duration
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const currentUserId = req.query.user_id;
 
-    // Ambil data dengan fallback SUM(COALESCE(se.score, se.skor_akhir, 0)) agar aman dari kolom kosong
     const topQuery = `
       SELECT 
         u.id AS user_id,
         u.nama AS nama_siswa, 
         SUM(COALESCE(se.score, se.skor_akhir, 0)) AS score, 
-        SUM(COALESCE(se.duration, 0)) AS duration,
+        0 AS duration,
         MAX(COALESCE(se.status_bayes, 'Selesai')) AS status_bayes,
         COUNT(se.id) AS total_ujian_dikerjakan
       FROM student_exams se
       JOIN users u ON se.user_id = u.id 
       WHERE se.status = 'completed'
       GROUP BY u.id, u.nama 
-      ORDER BY score DESC, duration ASC
+      ORDER BY score DESC
     `;
     const [allRankings] = await db.query(topQuery);
     const leaderboardTop10 = allRankings.slice(0, 10);
