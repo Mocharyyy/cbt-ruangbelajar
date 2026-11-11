@@ -168,6 +168,7 @@ function ExamContent() {
     }
   };
 
+  // FUNGSI EVALUASI KEBENARAN YANG KUAT & TAHAN BANTING
   const checkIsCorrect = (q: any, userAns: any) => {
     if (userAns === undefined || userAns === null) return false;
     let key = q.kunci_jawaban;
@@ -175,7 +176,7 @@ function ExamContent() {
 
     const tipe = (q.tipe_soal || 'single').toLowerCase();
 
-    // 1. SINGLE CHOICE (Pilihan Ganda Biasa)
+    // 1. SINGLE CHOICE
     if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
       if (typeof key === 'string') {
         try {
@@ -186,7 +187,7 @@ function ExamContent() {
       return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
     }
 
-    // 2. MULTIPLE CHOICE (Pilihan Ganda Kompleks / Banyak Jawaban)
+    // 2. MULTIPLE CHOICE
     if (tipe === 'multiple' || tipe === 'multiple_choice') {
       let keyArr: string[] = [];
       if (Array.isArray(key)) {
@@ -210,7 +211,7 @@ function ExamContent() {
       return [...userArr].sort().every((val, idx) => val === [...keyArr].sort()[idx]);
     }
 
-    // 3. TRUE / FALSE (Benar / Salah Berdasarkan Tabel Pernyataan)
+    // 3. TRUE / FALSE
     if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
       let keyObj: { [key: string]: boolean } = {};
       if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
@@ -228,12 +229,11 @@ function ExamContent() {
             });
           }
         } catch (e) {
-          // Jika disimpan format string koma misal "B,B,S,B"
           const parts = key.split(',').map(v => v.trim().toUpperCase());
-          optionsList.forEach((opt, idx) => {
-            if (parts[idx]) {
-              keyObj[opt.label.toUpperCase()] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
-            }
+          // Asumsi opsi A, B, C...
+          parts.forEach((p, idx) => {
+            const labelChar = String.fromCharCode(65 + idx);
+            keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
           });
         }
       }
@@ -243,7 +243,6 @@ function ExamContent() {
 
       if (keyKeys.length === 0) return false;
 
-      // Evaluasi apakah setiap baris pernyataan sesuai
       let allMatch = true;
       for (const k of keyKeys) {
         let matchedUserVal = undefined;
@@ -272,10 +271,16 @@ function ExamContent() {
         const parsed = JSON.parse(key);
         if (typeof parsed === 'string') return parsed;
         if (Array.isArray(parsed)) return parsed.join(', ');
+        if (typeof parsed === 'object' && parsed !== null) {
+          return Object.entries(parsed).map(([k, v]) => `${k}: ${v}`).join(', ');
+        }
       } catch (e) {}
       return key;
     }
     if (Array.isArray(key)) return key.join(', ');
+    if (typeof key === 'object' && key !== null) {
+      return Object.entries(key).map(([k, v]) => `${k}: ${v}`).join(', ');
+    }
     return String(key);
   };
 
@@ -557,7 +562,7 @@ function ExamContent() {
               </div>
             )}
 
-            {/* B. TIPE MULTIPLE CHOICE DENGAN KOREKSI WARNA */}
+            {/* B. TIPE MULTIPLE CHOICE */}
             {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (() => {
               let keyArr: string[] = [];
               const rawKey = currentQ.kunci_jawaban;
@@ -628,7 +633,7 @@ function ExamContent() {
               );
             })()}
 
-            {/* C. TIPE TRUE / FALSE DENGAN KOREKSI WARNA AKURAT */}
+            {/* C. TIPE TRUE / FALSE */}
             {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (() => {
               let keyObj: { [key: string]: any } = {};
               const rawKey = currentQ.kunci_jawaban;
@@ -640,10 +645,9 @@ function ExamContent() {
                   if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
                 } catch (e) {
                   const parts = rawKey.split(',').map(v => v.trim().toUpperCase());
-                  optionsList.forEach((opt, idx) => {
-                    if (parts[idx]) {
-                      keyObj[opt.label] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
-                    }
+                  parts.forEach((p, idx) => {
+                    const labelChar = String.fromCharCode(65 + idx);
+                    keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
                   });
                 }
               }
