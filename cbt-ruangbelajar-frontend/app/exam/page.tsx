@@ -175,6 +175,7 @@ function ExamContent() {
 
     const tipe = (q.tipe_soal || 'single').toLowerCase();
 
+    // 1. SINGLE CHOICE (Pilihan Ganda Biasa)
     if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
       if (typeof key === 'string') {
         try {
@@ -185,6 +186,7 @@ function ExamContent() {
       return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
     }
 
+    // 2. MULTIPLE CHOICE (Pilihan Ganda Kompleks / Banyak Jawaban)
     if (tipe === 'multiple' || tipe === 'multiple_choice') {
       let keyArr: string[] = [];
       if (Array.isArray(key)) {
@@ -204,23 +206,33 @@ function ExamContent() {
         ? userAns.map((u: any) => String(u).trim().toUpperCase())
         : [];
 
-      if (userArr.length !== keyArr.length) return false;
-      return JSON.stringify([...userArr].sort()) === JSON.stringify([...keyArr].sort());
+      if (userArr.length === 0 || userArr.length !== keyArr.length) return false;
+      return [...userArr].sort().every((val, idx) => val === [...keyArr].sort()[idx]);
     }
 
+    // 3. TRUE / FALSE (Benar / Salah Berdasarkan Tabel Pernyataan)
     if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
-      let keyObj: { [key: string]: any } = {};
+      let keyObj: { [key: string]: boolean } = {};
       if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
-        keyObj = key;
+        Object.keys(key).forEach(k => {
+          const val = key[k];
+          keyObj[k.trim().toUpperCase()] = typeof val === 'boolean' ? val : (String(val).toUpperCase() === 'B' || String(val).toUpperCase() === 'BENAR' || String(val) === 'true');
+        });
       } else if (typeof key === 'string') {
         try {
           const parsed = JSON.parse(key);
-          if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
+          if (typeof parsed === 'object' && parsed !== null) {
+            Object.keys(parsed).forEach(k => {
+              const val = parsed[k];
+              keyObj[k.trim().toUpperCase()] = typeof val === 'boolean' ? val : (String(val).toUpperCase() === 'B' || String(val).toUpperCase() === 'BENAR' || String(val) === 'true');
+            });
+          }
         } catch (e) {
+          // Jika disimpan format string koma misal "B,B,S,B"
           const parts = key.split(',').map(v => v.trim().toUpperCase());
           optionsList.forEach((opt, idx) => {
             if (parts[idx]) {
-              keyObj[opt.label] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
+              keyObj[opt.label.toUpperCase()] = parts[idx] === 'B' || parts[idx] === 'BENAR' || parts[idx] === 'TRUE';
             }
           });
         }
@@ -231,24 +243,22 @@ function ExamContent() {
 
       if (keyKeys.length === 0) return false;
 
+      // Evaluasi apakah setiap baris pernyataan sesuai
+      let allMatch = true;
       for (const k of keyKeys) {
-        const normalizedKey = k.trim().toUpperCase();
-        let matchedCorrect = keyObj[k];
-        if (typeof matchedCorrect === 'string') {
-          matchedCorrect = matchedCorrect.toUpperCase() === 'B' || matchedCorrect.toUpperCase() === 'BENAR' || matchedCorrect === 'true';
-        }
-
-        let matchedUser = undefined;
+        let matchedUserVal = undefined;
         for (const uk of Object.keys(userObj)) {
-          if (uk.trim().toUpperCase() === normalizedKey) {
-            matchedUser = userObj[uk];
+          if (uk.trim().toUpperCase() === k) {
+            matchedUserVal = Boolean(userObj[uk]);
             break;
           }
         }
-
-        if (Boolean(matchedUser) !== Boolean(matchedCorrect)) return false;
+        if (matchedUserVal === undefined || matchedUserVal !== keyObj[k]) {
+          allMatch = false;
+          break;
+        }
       }
-      return true;
+      return allMatch;
     }
 
     return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
