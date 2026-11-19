@@ -5,21 +5,92 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 interface UserData {
-  id: number;
+  id: number | string;
   nama: string;
-  email: string;
-  sekolah: string;
-  tingkat_kelas: number | string;
+  email?: string;
+  sekolah?: string;
+  kelas_id?: number | string;
+  tingkat_kelas?: number | string;
   jenjang?: string;
 }
 
 interface ExamPackage {
-  id: number;
+  id: number | string;
   judul?: string;
   judul_ujian?: string;
   mapel: string;
+  jenjang?: string;
+  kode?: string;
   deskripsi?: string;
   durasi?: number;
+}
+
+function resolveJenjang(rawKelas?: number | string, rawJenjang?: string): 'SD' | 'SMP' | 'SMA' {
+  const jenjangUpper = (rawJenjang || '').trim().toUpperCase();
+  if (jenjangUpper.includes('SD') || jenjangUpper.includes('MI')) return 'SD';
+  if (jenjangUpper.includes('SMP') || jenjangUpper.includes('MTS')) return 'SMP';
+  if (jenjangUpper.includes('SMA') || jenjangUpper.includes('SMK') || jenjangUpper.includes('MA')) {
+    return 'SMA';
+  }
+
+  const kelasNum = Number(rawKelas);
+  if (!Number.isNaN(kelasNum)) {
+    if (kelasNum <= 6) return 'SD';
+    if (kelasNum <= 9) return 'SMP';
+    return 'SMA';
+  }
+
+  return 'SMP';
+}
+
+function getFallbackExamsByJenjang(jenjang: 'SD' | 'SMP' | 'SMA'): ExamPackage[] {
+  if (jenjang === 'SD') {
+    return [
+      { id: 1, judul_ujian: 'Paket 1 Matematika (SD)', mapel: 'Matematika', jenjang: 'SD', deskripsi: 'Latihan Soal & Pemahaman Konsep SD', durasi: 90 },
+      { id: 2, judul_ujian: 'Paket 1 Bahasa Indonesia (SD)', mapel: 'Bahasa Indonesia', jenjang: 'SD', deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SD', durasi: 90 },
+      { id: 3, judul_ujian: 'Paket 1 IPAS (SD)', mapel: 'IPAS', jenjang: 'SD', deskripsi: 'Ilmu Pengetahuan Alam & Sosial SD', durasi: 90 },
+    ];
+  }
+
+  if (jenjang === 'SMP') {
+    return [
+      { id: 4, judul_ujian: 'Paket 1 Matematika (SMP)', mapel: 'Matematika', jenjang: 'SMP', deskripsi: 'Latihan Soal & Penalaran Matematika SMP', durasi: 90 },
+      { id: 5, judul_ujian: 'Paket 1 Bahasa Indonesia (SMP)', mapel: 'Bahasa Indonesia', jenjang: 'SMP', deskripsi: 'Literasi & Analisis Teks SMP', durasi: 90 },
+      { id: 6, judul_ujian: 'Paket 1 IPA (SMP)', mapel: 'IPA', jenjang: 'SMP', deskripsi: 'Fisika, Biologi & Kimia Tingkat SMP', durasi: 90 },
+      { id: 7, judul_ujian: 'Paket 1 Bahasa Inggris (SMP)', mapel: 'Bahasa Inggris', jenjang: 'SMP', deskripsi: 'Reading Comprehension & Grammar SMP', durasi: 90 },
+    ];
+  }
+
+  return [
+    { id: 8, judul_ujian: 'Paket 1 Matematika (SMA/SMK)', mapel: 'Matematika', jenjang: 'SMA', deskripsi: 'Latihan Soal & Penalaran Matematika SMA/SMK', durasi: 90 },
+    { id: 9, judul_ujian: 'Paket 1 Bahasa Indonesia (SMA/SMK)', mapel: 'Bahasa Indonesia', jenjang: 'SMA', deskripsi: 'Literasi & Pemahaman Bacaan SMA/SMK', durasi: 90 },
+    { id: 10, judul_ujian: 'Paket 1 Bahasa Inggris (SMA/SMK)', mapel: 'Bahasa Inggris', jenjang: 'SMA', deskripsi: 'Reading & Bahasa Inggris Tingkat SMA/SMK', durasi: 90 },
+  ];
+}
+
+function filterExamsByJenjang(exams: ExamPackage[], jenjang: 'SD' | 'SMP' | 'SMA'): ExamPackage[] {
+  const matches = exams.filter((exam) => {
+    const combined = `${exam.jenjang || ''} ${exam.kode || ''} ${exam.judul_ujian || ''} ${exam.judul || ''} ${exam.mapel || ''}`.toUpperCase();
+
+    if (jenjang === 'SD') {
+      return combined.includes('SD') || combined.includes('MI') || combined.includes('IPAS');
+    }
+    if (jenjang === 'SMP') {
+      return (
+        (combined.includes('SMP') || combined.includes('MTS')) &&
+        !combined.includes('SD') &&
+        !combined.includes('SMA') &&
+        !combined.includes('SMK')
+      );
+    }
+    return (
+      (combined.includes('SMA') || combined.includes('SMK') || combined.includes('MA')) &&
+      !combined.includes('SMP') &&
+      !combined.includes('SD')
+    );
+  });
+
+  return matches;
 }
 
 export default function DashboardPage() {
@@ -33,53 +104,69 @@ export default function DashboardPage() {
       try {
         const savedUser = localStorage.getItem('studentUser') || localStorage.getItem('user');
         if (!savedUser) {
-          router.push('/login');
+          router.push('/');
           return;
         }
 
-        const parsedUser = JSON.parse(savedUser);
-        setUser(parsedUser);
+        const parsedUser = JSON.parse(savedUser) as UserData;
+        const initialTingkat = parsedUser.tingkat_kelas ?? parsedUser.kelas_id ?? '';
+        const initialJenjang = resolveJenjang(initialTingkat, parsedUser.jenjang);
 
-        const res = await fetch(`https://cbt-ruangbelajar-backend.vercel.app/api/exams?user_id=${parsedUser.id}`);
-const data = await res.json();
+        setUser({
+          ...parsedUser,
+          tingkat_kelas: initialTingkat || parsedUser.tingkat_kelas || '',
+          jenjang: parsedUser.jenjang || initialJenjang,
+        });
 
-        if (data.success) {
-          const fetchedExams = data.exams || [];
-          
-          if (fetchedExams.length === 0) {
-            const tingkat = Number(data.user?.tingkat_kelas || parsedUser.tingkat_kelas || 6);
-            if (tingkat <= 6) {
-              setExamList([
-                { id: 1, judul_ujian: 'Paket 1 Latihan Matematika Utama', mapel: 'Matematika', deskripsi: 'Tes Kemampuan Akademik (TKA)', durasi: 90 },
-                { id: 2, judul_ujian: 'Paket 1 Latihan Bahasa Indonesia', mapel: 'Bahasa Indonesia', deskripsi: 'Literasi Bahasa & Pemahaman Bacaan', durasi: 90 },
-                { id: 3, judul_ujian: 'Paket 1 Latihan IPAS', mapel: 'IPAS', deskripsi: 'Pemahaman Konsep IPA & IPS', durasi: 90 },
-              ]);
-            } else {
-              setExamList([
-                { id: 1, judul_ujian: 'Paket 1 Latihan Matematika Utama', mapel: 'Matematika', deskripsi: 'Tes Kemampuan Akademik (TKA)', durasi: 90 },
-                { id: 2, judul_ujian: 'Paket 1 Latihan Bahasa Indonesia', mapel: 'Bahasa Indonesia', deskripsi: 'Literasi Bahasa & Pemahaman Bacaan', durasi: 90 },
-                { id: 3, judul_ujian: 'Paket 1 Latihan IPA', mapel: 'IPA', deskripsi: 'Sains & Konsep Alam', durasi: 90 },
-                { id: 4, judul_ujian: 'Paket 1 Latihan Bahasa Inggris', mapel: 'Bahasa Inggris', deskripsi: 'Reading & Grammar', durasi: 90 },
-              ]);
-            }
-          } else {
-            setExamList(fetchedExams);
-          }
+        const queryParams = new URLSearchParams();
+        if (parsedUser.id !== undefined && parsedUser.id !== null) {
+          queryParams.set('user_id', String(parsedUser.id));
+        }
+        if (initialTingkat !== '') {
+          queryParams.set('kelas_id', String(initialTingkat));
+          queryParams.set('tingkat_kelas', String(initialTingkat));
+        }
+        queryParams.set('jenjang', initialJenjang);
 
-          if (data.user) {
-            const updated = {
-              ...parsedUser,
-              nama: data.user.nama || parsedUser.nama,
-              tingkat_kelas: data.user.tingkat_kelas || parsedUser.tingkat_kelas,
-              jenjang: data.user.jenjang || parsedUser.jenjang,
-              sekolah: data.user.sekolah || parsedUser.sekolah
-            };
-            setUser(updated);
-            localStorage.setItem('studentUser', JSON.stringify(updated));
-          }
+        const res = await fetch(`/api/exams?${queryParams.toString()}`);
+        const data = await res.json();
+
+        const resolvedTingkat =
+          data?.user?.tingkat_kelas ??
+          data?.user?.kelas_id ??
+          initialTingkat;
+        const activeJenjang = resolveJenjang(
+          resolvedTingkat,
+          data?.user?.jenjang ?? parsedUser.jenjang
+        );
+
+        const updatedUser: UserData = {
+          ...parsedUser,
+          nama: data?.user?.nama || parsedUser.nama,
+          tingkat_kelas: resolvedTingkat || parsedUser.tingkat_kelas || '',
+          jenjang: data?.user?.jenjang || activeJenjang,
+          sekolah: data?.user?.sekolah || parsedUser.sekolah,
+        };
+        setUser(updatedUser);
+        localStorage.setItem('studentUser', JSON.stringify(updatedUser));
+
+        const rawExams: ExamPackage[] = Array.isArray(data?.exams)
+          ? data.exams
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+        const filteredExams = filterExamsByJenjang(rawExams, activeJenjang);
+
+        if (res.ok && data?.success && filteredExams.length > 0) {
+          setExamList(filteredExams);
+        } else {
+          setExamList(getFallbackExamsByJenjang(activeJenjang));
         }
       } catch (err) {
         console.error('Gagal memuat dashboard:', err);
+        const fallbackJenjang = resolveJenjang(user?.tingkat_kelas ?? user?.kelas_id, user?.jenjang);
+        setExamList(getFallbackExamsByJenjang(fallbackJenjang));
       } finally {
         setLoading(false);
       }
@@ -88,7 +175,7 @@ const data = await res.json();
     fetchData();
   }, [router]);
 
-  const handleMulaiUjian = (examId: number) => {
+  const handleMulaiUjian = (examId: number | string) => {
     router.push(`/exam?exam_id=${examId}`);
   };
 
@@ -140,8 +227,8 @@ const data = await res.json();
           </div>
 
           <div className="mt-6 md:mt-0 relative z-10">
-            <Link 
-              href="/leaderboard" 
+            <Link
+              href="/leaderboard"
               className="bg-white/20 hover:bg-white/30 text-white font-bold py-3 px-6 rounded-2xl backdrop-blur-md transition flex items-center space-x-2 border border-white/30 shadow-sm"
             >
               <span>🏆</span>
