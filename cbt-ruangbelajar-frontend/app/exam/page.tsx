@@ -168,15 +168,15 @@ function ExamContent() {
     }
   };
 
-  // FUNGSI EVALUASI KEBENARAN YANG KUAT & TAHAN BANTING
-  const checkIsCorrect = (q: any, userAns: any) => {
-    if (userAns === undefined || userAns === null) return false;
+// 1. Fungsi Evaluasi Parsial per Item (Mengembalikan nilai 0.0 sampai 1.0)
+  const getQuestionScoreRatio = (q: any, userAns: any) => {
+    if (userAns === undefined || userAns === null) return 0;
     let key = q.kunci_jawaban;
-    if (key === undefined || key === null) return false;
+    if (key === undefined || key === null) return 0;
 
     const tipe = (q.tipe_soal || 'single').toLowerCase();
 
-    // 1. SINGLE CHOICE
+    // A. Single Choice (Harus benar mutlak: 1 atau 0)
     if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
       if (typeof key === 'string') {
         try {
@@ -184,10 +184,10 @@ function ExamContent() {
           if (typeof parsed === 'string') key = parsed;
         } catch (e) {}
       }
-      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
+      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
     }
 
-    // 2. MULTIPLE CHOICE
+    // B. Multiple Choice (Parsial berdasarkan jumlah pilihan benar yang cocok)
     if (tipe === 'multiple' || tipe === 'multiple_choice') {
       let keyArr: string[] = [];
       if (Array.isArray(key)) {
@@ -207,11 +207,24 @@ function ExamContent() {
         ? userAns.map((u: any) => String(u).trim().toUpperCase())
         : [];
 
-      if (userArr.length === 0 || userArr.length !== keyArr.length) return false;
-      return [...userArr].sort().every((val, idx) => val === [...keyArr].sort()[idx]);
+      if (keyArr.length === 0) return 0;
+
+      // Hitung berapa banyak pilihan user yang tepat dibanding kunci
+      let correctMatches = 0;
+      let falseSelections = 0;
+
+      userArr.forEach(u => {
+        if (keyArr.includes(u)) correctMatches++;
+        else falseSelections++; // memilih yang seharusnya tidak dipilih
+      });
+
+      // Rumus proporsional: (Pilihan benar yang dipilih - kesalahan) dibagi total kunci benar
+      // Minimal skor 0, tidak boleh minus
+      const score = (correctMatches - falseSelections) / keyArr.length;
+      return score > 0 ? score : 0;
     }
 
-    // 3. TRUE / FALSE
+    // C. True / False (Parsial berdasarkan jumlah baris pernyataan yang benar)
     if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
       let keyObj: { [key: string]: boolean } = {};
       if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
@@ -230,7 +243,6 @@ function ExamContent() {
           }
         } catch (e) {
           const parts = key.split(',').map(v => v.trim().toUpperCase());
-          // Asumsi opsi A, B, C...
           parts.forEach((p, idx) => {
             const labelChar = String.fromCharCode(65 + idx);
             keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
@@ -241,9 +253,9 @@ function ExamContent() {
       const userObj = typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns) ? userAns : {};
       const keyKeys = Object.keys(keyObj);
 
-      if (keyKeys.length === 0) return false;
+      if (keyKeys.length === 0) return 0;
 
-      let allMatch = true;
+      let correctRows = 0;
       for (const k of keyKeys) {
         let matchedUserVal = undefined;
         for (const uk of Object.keys(userObj)) {
@@ -252,15 +264,21 @@ function ExamContent() {
             break;
           }
         }
-        if (matchedUserVal === undefined || matchedUserVal !== keyObj[k]) {
-          allMatch = false;
-          break;
+        if (matchedUserVal !== undefined && matchedUserVal === keyObj[k]) {
+          correctRows++;
         }
       }
-      return allMatch;
+
+      // Proporsi baris pernyataan yang benar dibagi total baris
+      return correctRows / keyKeys.length;
     }
 
-    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase();
+    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
+  };
+
+  // 2. Helper untuk status centang hijau di modal (jika rasio >= 0.8 atau benar semua)
+  const checkIsCorrect = (q: any, userAns: any) => {
+    return getQuestionScoreRatio(q, userAns) >= 0.99;
   };
 
   const getCorrectKeyString = (q: any) => {
@@ -284,23 +302,21 @@ function ExamContent() {
     return String(key);
   };
 
-  const handleFinishExam = async () => {
+const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
 
     try {
-      let correctCount = 0;
+      let totalEarnedScore = 0;
       questions.forEach((q: any) => {
         const userAns = answers[q.id];
-        if (userAns !== undefined && userAns !== null) {
-          if (checkIsCorrect(q, userAns)) {
-            correctCount++;
-          }
-        }
+        const ratio = getQuestionScoreRatio(q, userAns); // Bernilai 0.0 s.d 1.0
+        totalEarnedScore += ratio;
       });
 
       const totalSoal = questions.length > 0 ? questions.length : 1;
-      const calculatedScore = Math.round((correctCount / totalSoal) * 100);
+      // Konversi ke skala 100 dengan akurat
+      const calculatedScore = Math.round((totalEarnedScore / totalSoal) * 100);
       const totalTimeSpent = (90 * 60) - timeLeft;
 
       await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
@@ -331,7 +347,7 @@ function ExamContent() {
       setIsSubmitting(false);
     }
   };
-
+  
   if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">

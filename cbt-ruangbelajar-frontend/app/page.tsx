@@ -6,27 +6,35 @@ export const fetchCache = 'force-no-store';
 import React, { useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 
-// Mengambil URL Backend dari Environment Variable Vercel
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+// Gunakan string kosong agar memanggil /api/... (HTTPS) lalu diteruskan oleh next.config.ts ke VPS
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+interface ApiResponse<T = unknown> {
+  success?: boolean;
+  message?: string;
+  data?: T;
+}
+
+interface StudentSessionData {
+  passcode?: string;
+  [key: string]: unknown;
+}
 
 function LoginPageContent() {
   const router = useRouter();
 
-  // Form Input States
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [sekolah, setSekolah] = useState('');
   const [kelasId, setKelasId] = useState('12');
 
-  // Multi-step & Status States
   const [step, setStep] = useState<1 | 2>(1);
   const [generatedPasscode, setGeneratedPasscode] = useState('');
   const [inputPasscode, setInputPasscode] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Handle Step 1: Registrasi & Dapatkan Passcode
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
@@ -35,17 +43,30 @@ function LoginPageContent() {
       const res = await fetch(`${API_URL}/api/student/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nama, email, sekolah, kelas_id: kelasId }),
+        body: JSON.stringify({
+          nama: nama.trim(),
+          email: email.trim(),
+          sekolah: sekolah.trim(),
+          kelas_id: kelasId,
+        }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as ApiResponse<StudentSessionData>;
 
-      if (data.success) {
-        setGeneratedPasscode(data.data.passcode);
-        setStep(2); // Pindah ke Langkah 2 (Input Passcode)
-      } else {
+      if (!res.ok || !data.success) {
         setErrorMsg(data.message || 'Gagal meregistrasi siswa');
+        return;
       }
+
+      const passcode = data.data?.passcode ?? '';
+      if (!passcode) {
+        setErrorMsg('Registrasi berhasil, tetapi passcode tidak diterima dari server.');
+        return;
+      }
+
+      setGeneratedPasscode(passcode);
+      setInputPasscode(passcode);
+      setStep(2);
     } catch (err) {
       console.error('Error Register:', err);
       setErrorMsg('Gagal terhubung ke server backend');
@@ -54,29 +75,31 @@ function LoginPageContent() {
     }
   };
 
-  // Handle Step 2: Verifikasi Passcode & Masuk Dashboard
-  const handleVerifyAndLogin = async (e: React.FormEvent) => {
+  const handleVerifyAndLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
 
     try {
+      const normalizedPasscode = inputPasscode.trim().toUpperCase();
       const res = await fetch(`${API_URL}/api/student/verify-passcode`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, passcode: inputPasscode.trim().toUpperCase() }),
+        body: JSON.stringify({
+          email: email.trim(),
+          passcode: normalizedPasscode,
+        }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as ApiResponse<StudentSessionData>;
 
-      if (data.success) {
-        // Simpan data user di localStorage untuk sesi login
-        localStorage.setItem('studentUser', JSON.stringify(data.data));
-        // Redirect ke Halaman Dashboard Ujian
-        router.push('/dashboard');
-      } else {
+      if (!res.ok || !data.success || !data.data) {
         setErrorMsg(data.message || 'Passcode salah!');
+        return;
       }
+
+      localStorage.setItem('studentUser', JSON.stringify(data.data));
+      router.push('/dashboard');
     } catch (err) {
       console.error('Error Verifikasi:', err);
       setErrorMsg('Gagal terhubung ke server backend');
@@ -88,20 +111,17 @@ function LoginPageContent() {
   return (
     <div className="min-h-screen bg-blue-600 flex items-center justify-center p-4 font-sans">
       <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
-        {/* Header */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-black text-blue-900 tracking-wide">TRYOUT KESIAPAN TKA</h1>
           <p className="text-xs text-slate-500 font-semibold mt-1">Bimbel Ruang Belajar</p>
         </div>
 
-        {/* Error Alert */}
         {errorMsg && (
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold text-center">
             {errorMsg}
           </div>
         )}
 
-        {/* --- STEP 1: FORM REGISTRASI --- */}
         {step === 1 && (
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
@@ -171,7 +191,6 @@ function LoginPageContent() {
           </form>
         )}
 
-        {/* --- STEP 2: VERIFIKASI PASSCODE --- */}
         {step === 2 && (
           <form onSubmit={handleVerifyAndLogin} className="space-y-5">
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
@@ -226,10 +245,15 @@ function LoginPageContent() {
   );
 }
 
-// Komponen pembungkus Suspense agar aman saat di-build oleh Vercel
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-slate-600">Memuat halaman...</div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center font-bold text-slate-600">
+          Memuat halaman...
+        </div>
+      }
+    >
       <LoginPageContent />
     </Suspense>
   );
