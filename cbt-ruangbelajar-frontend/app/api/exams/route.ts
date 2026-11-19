@@ -1,18 +1,35 @@
-import { NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.BACKEND_URL ||
+  'http://139.190.107.150:5000';
+
+export async function GET(req: NextRequest) {
   try {
-    const connection = await mysql.createConnection(
-      process.env.DATABASE_URL || 
-      `mysql://${process.env.DB_USER || 'avnadmin'}:${process.env.DB_PASSWORD || 'AVNS_mTGopbq0kqJh5NO8OPg'}@${process.env.DB_HOST || 'mysql-a275b87-cbt-ruangbelajar.h.aivencloud.com'}:${process.env.DB_PORT || 23298}/${process.env.DB_NAME || 'defaultdb'}?ssl-mode=REQUIRED`
-    );
+    const searchParams = req.nextUrl.searchParams.toString();
+    const targetUrl = `${BACKEND_URL.replace(/\/+$/, '')}/api/exams${
+      searchParams ? `?${searchParams}` : ''
+    }`;
 
-    const [rows] = await connection.query('SELECT * FROM exams');
-    await connection.end();
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
 
-    return NextResponse.json({ success: true, data: rows });
+    const data = await response.json();
+
+    return NextResponse.json(data, { status: response.status });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || 'Gagal menghubungi server backend',
+      },
+      { status: 500 }
+    );
   }
 }

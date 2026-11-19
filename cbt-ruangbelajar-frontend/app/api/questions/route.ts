@@ -1,54 +1,67 @@
-import { NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import { NextRequest, NextResponse } from 'next/server';
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.BACKEND_URL ||
+  'http://139.190.107.150:5000';
 
 // 1. Ambil Soal (GET)
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const examId = searchParams.get('exam_id');
+    const searchParams = request.nextUrl.searchParams.toString();
+    const targetUrl = `${BACKEND_URL.replace(/\/+$/, '')}/api/questions${
+      searchParams ? `?${searchParams}` : ''
+    }`;
 
-    const connection = await mysql.createConnection(
-      process.env.DATABASE_URL || 
-      `mysql://${process.env.DB_USER || 'avnadmin'}:${process.env.DB_PASSWORD || 'AVNS_mTGopbq0kqJh5NO8OPg'}@${process.env.DB_HOST || 'mysql-a275b87-cbt-ruangbelajar.h.aivencloud.com'}:${process.env.DB_PORT || 23298}/${process.env.DB_NAME || 'defaultdb'}?ssl-mode=REQUIRED`
-    );
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
 
-    let query = 'SELECT * FROM questions';
-    let params: any[] = [];
-
-    if (examId) {
-      query += ' WHERE exam_id = ?';
-      params.push(examId);
-    }
-
-    const [rows] = await connection.query(query, params);
-    await connection.end();
-
-    return NextResponse.json(rows);
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Gagal mengambil data soal dari backend' },
+      { status: 500 }
+    );
   }
 }
 
 // 2. Hapus Soal (DELETE)
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    const searchParams = request.nextUrl.searchParams.toString();
+    const id = request.nextUrl.searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ success: false, error: 'ID soal wajib diisi' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'ID soal wajib diisi' },
+        { status: 400 }
+      );
     }
 
-    const connection = await mysql.createConnection(
-      process.env.DATABASE_URL || 
-      `mysql://${process.env.DB_USER || 'avnadmin'}:${process.env.DB_PASSWORD || 'AVNS_mTGopbq0kqJh5NO8OPg'}@${process.env.DB_HOST || 'mysql-a275b87-cbt-ruangbelajar.h.aivencloud.com'}:${process.env.DB_PORT || 23298}/${process.env.DB_NAME || 'defaultdb'}?ssl-mode=REQUIRED`
-    );
+    const targetUrl = `${BACKEND_URL.replace(/\/+$/, '')}/api/questions${
+      searchParams ? `?${searchParams}` : ''
+    }`;
 
-    await connection.query('DELETE FROM questions WHERE id = ?', [id]);
-    await connection.end();
+    const response = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
 
-    return NextResponse.json({ success: true, message: 'Soal berhasil dihapus' });
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Gagal menghapus soal dari backend' },
+      { status: 500 }
+    );
   }
 }
