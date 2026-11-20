@@ -25,7 +25,7 @@ function ExamContent() {
   const urlStudentExamId = searchParams.get('studentExamId');
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
-  const [currentUserId, setCurrentUserId] = useState<string>('guest');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '');
   const [isInitializing, setIsInitializing] = useState(true);
 
@@ -71,6 +71,7 @@ function ExamContent() {
     }
   };
 
+  // Ambil user_id terlebih dahulu agar tidak pernah tertukar dengan 'guest'
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
@@ -87,16 +88,18 @@ function ExamContent() {
     }
   }, []);
 
-  const examDoneKey = `cbt_done_${currentUserId}_${examId}`;
-  const examAnswersKey = `cbt_exam_answers_${currentUserId}_${examId}`;
-  const examScoreKey = `cbt_exam_score_${currentUserId}_${examId}`;
-  const examSessionKey = `cbt_exam_session_${currentUserId}_${examId}`;
+  const resolvedUserId = currentUserId || 'guest';
+  const examDoneKey = `cbt_done_${resolvedUserId}_${examId}`;
+  const examAnswersKey = `cbt_exam_answers_${resolvedUserId}_${examId}`;
+  const examScoreKey = `cbt_exam_score_${resolvedUserId}_${examId}`;
+  const examSessionKey = `cbt_exam_session_${resolvedUserId}_${examId}`;
 
-  // 1. START EXAM: hanya tampilkan rekap jika memang sudah pernah diselesaikan & tersimpan
+  // 1. START EXAM: tunggu currentUserId selesai dibaca dulu
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (currentUserId === null || typeof window === 'undefined') return;
 
-    const doneLocally = localStorage.getItem(examDoneKey) === 'true';
+    const doneLocally =
+      resolvedUserId !== 'guest' && localStorage.getItem(examDoneKey) === 'true';
     const savedSessionId = localStorage.getItem(examSessionKey);
     const savedAnsStr = localStorage.getItem(examAnswersKey);
     const savedScoreStr = localStorage.getItem(examScoreKey);
@@ -109,20 +112,19 @@ function ExamContent() {
       } catch {}
     }
 
-    const hasSavedScore = savedScoreStr !== null && !Number.isNaN(Number(savedScoreStr));
-    if (hasSavedScore) {
-      const numScore = Number(savedScoreStr);
-      setExamResultData({
-        score: numScore,
-        status: numScore >= 80 ? 'Tinggi' : numScore >= 60 ? 'Sedang' : 'Rendah',
-        hasCalculated: true,
-      });
-    }
-
-    // Jika siswa sudah menyelesaikan mapel ini sebelumnya, langsung buka rekap hasil & pembahasan
     if (doneLocally) {
+      if (savedScoreStr !== null && !Number.isNaN(Number(savedScoreStr))) {
+        const numScore = Number(savedScoreStr);
+        setExamResultData({
+          score: numScore,
+          status: numScore >= 80 ? 'Tinggi' : numScore >= 60 ? 'Sedang' : 'Rendah',
+          hasCalculated: true,
+        });
+      }
       if (savedSessionId) setStudentExamId(savedSessionId);
       else if (urlStudentExamId) setStudentExamId(urlStudentExamId);
+
+      // Siswa sudah menyelesaikan ujian ini sebelumnya: buka rekap & pembahasan, tidak bisa mengulang
       setIsExamFinished(true);
       setIsExamStarted(true);
       setIsResultModalOpen(true);
@@ -130,9 +132,14 @@ function ExamContent() {
       return;
     }
 
-    // Jika belum selesai, pastikan mulai dari awal (petunjuk -> mulai mengerjakan)
+    // Jika belum pernah menyelesaikan ujian ini, pastikan modal hasil tertutup & mulai dari awal
     setIsExamFinished(false);
     setIsResultModalOpen(false);
+    setExamResultData({
+      score: 0,
+      status: 'Rendah',
+      hasCalculated: false,
+    });
 
     if (urlStudentExamId) {
       setStudentExamId(urlStudentExamId);
@@ -140,14 +147,14 @@ function ExamContent() {
       return;
     }
 
-    if (currentUserId === 'guest') {
+    if (resolvedUserId === 'guest') {
       setStudentExamId('guest');
       setIsInitializing(false);
       return;
     }
 
     callExamLifecycleApi('start', {
-      user_id: Number(currentUserId),
+      user_id: Number(resolvedUserId),
       exam_id: Number(examId),
     })
       .then((data) => {
@@ -155,18 +162,19 @@ function ExamContent() {
           setStudentExamId(String(data.student_exam_id));
           localStorage.setItem(examSessionKey, String(data.student_exam_id));
         } else {
-          setStudentExamId(`session_${currentUserId}_${examId}`);
+          setStudentExamId(`session_${resolvedUserId}_${examId}`);
         }
       })
       .catch((err) => {
         console.error('Gagal memulai sesi ujian:', err);
-        setStudentExamId(`session_${currentUserId}_${examId}`);
+        setStudentExamId(`session_${resolvedUserId}_${examId}`);
       })
       .finally(() => {
         setIsInitializing(false);
       });
   }, [
     currentUserId,
+    resolvedUserId,
     examId,
     urlStudentExamId,
     examDoneKey,
@@ -176,7 +184,7 @@ function ExamContent() {
   ]);
 
   const activeSessionId = studentExamId || 'pending';
-  const timerKey = `cbt_timer_${currentUserId}_${examId}_${activeSessionId}`;
+  const timerKey = `cbt_timer_${resolvedUserId}_${examId}_${activeSessionId}`;
 
   useEffect(() => {
     if (isInitializing || isExamFinished) return;
@@ -226,7 +234,7 @@ function ExamContent() {
 
   // 2. ANSWER
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
-    if (isExamFinished || currentUserId === 'guest') return;
+    if (isExamFinished || resolvedUserId === 'guest') return;
     const numericSessionId = Number(studentExamId);
     if (!numericSessionId) return;
 
@@ -365,7 +373,7 @@ function ExamContent() {
     [questions, getQuestionScoreRatio]
   );
 
-  // Hitung skor sekali saat membuka kembali ujian yang sudah selesai jika belum ada skor tersimpan
+  // Hitung skor saat revisit jika ujian memang sudah selesai & belum ada skor tersimpan
   useEffect(() => {
     if (!isExamFinished || questions.length === 0) return;
     if (examResultData.hasCalculated) return;
@@ -441,7 +449,7 @@ function ExamContent() {
       const totalTimeSpent = 90 * 60 - timeLeft;
       const numericSessionId = Number(studentExamId);
 
-      if (currentUserId !== 'guest' && numericSessionId) {
+      if (resolvedUserId !== 'guest' && numericSessionId) {
         await callExamLifecycleApi('finish', {
           student_exam_id: numericSessionId,
           final_score: calculatedScore,
@@ -451,11 +459,13 @@ function ExamContent() {
       }
 
       setIsExamFinished(true);
-      localStorage.setItem(examDoneKey, 'true');
-      localStorage.setItem(examScoreKey, String(calculatedScore));
-      localStorage.setItem(examAnswersKey, JSON.stringify(answers));
-      if (studentExamId) {
-        localStorage.setItem(examSessionKey, studentExamId);
+      if (resolvedUserId !== 'guest') {
+        localStorage.setItem(examDoneKey, 'true');
+        localStorage.setItem(examScoreKey, String(calculatedScore));
+        localStorage.setItem(examAnswersKey, JSON.stringify(answers));
+        if (studentExamId) {
+          localStorage.setItem(examSessionKey, studentExamId);
+        }
       }
 
       setExamResultData({
@@ -468,9 +478,11 @@ function ExamContent() {
       console.error('Error saat menyelesaikan ujian:', error);
       const fallbackScore = computeTotalScoreFromAnswers(answers);
       setIsExamFinished(true);
-      localStorage.setItem(examDoneKey, 'true');
-      localStorage.setItem(examScoreKey, String(fallbackScore));
-      localStorage.setItem(examAnswersKey, JSON.stringify(answers));
+      if (resolvedUserId !== 'guest') {
+        localStorage.setItem(examDoneKey, 'true');
+        localStorage.setItem(examScoreKey, String(fallbackScore));
+        localStorage.setItem(examAnswersKey, JSON.stringify(answers));
+      }
       setExamResultData({
         score: fallbackScore,
         status: fallbackScore >= 80 ? 'Tinggi' : fallbackScore >= 60 ? 'Sedang' : 'Rendah',
@@ -502,7 +514,7 @@ function ExamContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExamStarted, isExamFinished, isResultModalOpen, isInitializing, timerKey]);
 
-  if (loading || isInitializing) {
+  if (loading || isInitializing || currentUserId === null) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
         <p className="font-bold text-[#40b159] animate-pulse text-lg">Memuat Sesi Ujian...</p>
