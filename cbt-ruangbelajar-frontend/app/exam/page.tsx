@@ -25,7 +25,7 @@ function ExamContent() {
   const urlStudentExamId = searchParams.get('studentExamId');
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '');
   const [isInitializing, setIsInitializing] = useState(true);
 
@@ -71,7 +71,6 @@ function ExamContent() {
     }
   };
 
-  // Ambil user_id terlebih dahulu agar tidak pernah tertukar dengan 'guest'
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
@@ -88,51 +87,8 @@ function ExamContent() {
     }
   }, []);
 
-  const resolvedUserId = currentUserId || 'guest';
-  const examDoneKey = `cbt_done_${resolvedUserId}_${examId}`;
-  const examAnswersKey = `cbt_exam_answers_${resolvedUserId}_${examId}`;
-  const examScoreKey = `cbt_exam_score_${resolvedUserId}_${examId}`;
-  const examSessionKey = `cbt_exam_session_${resolvedUserId}_${examId}`;
-
-  // 1. START EXAM: tunggu currentUserId selesai dibaca dulu
+  // Selalu mulai sesi baru dengan kondisi belum selesai agar tidak muncul hasil/kunci di awal
   useEffect(() => {
-    if (currentUserId === null || typeof window === 'undefined') return;
-
-    const doneLocally =
-      resolvedUserId !== 'guest' && localStorage.getItem(examDoneKey) === 'true';
-    const savedSessionId = localStorage.getItem(examSessionKey);
-    const savedAnsStr = localStorage.getItem(examAnswersKey);
-    const savedScoreStr = localStorage.getItem(examScoreKey);
-
-    let parsedSavedAns: { [key: number]: any } = {};
-    if (savedAnsStr) {
-      try {
-        parsedSavedAns = JSON.parse(savedAnsStr);
-        setAnswers(parsedSavedAns);
-      } catch {}
-    }
-
-    if (doneLocally) {
-      if (savedScoreStr !== null && !Number.isNaN(Number(savedScoreStr))) {
-        const numScore = Number(savedScoreStr);
-        setExamResultData({
-          score: numScore,
-          status: numScore >= 80 ? 'Tinggi' : numScore >= 60 ? 'Sedang' : 'Rendah',
-          hasCalculated: true,
-        });
-      }
-      if (savedSessionId) setStudentExamId(savedSessionId);
-      else if (urlStudentExamId) setStudentExamId(urlStudentExamId);
-
-      // Siswa sudah menyelesaikan ujian ini sebelumnya: buka rekap & pembahasan, tidak bisa mengulang
-      setIsExamFinished(true);
-      setIsExamStarted(true);
-      setIsResultModalOpen(true);
-      setIsInitializing(false);
-      return;
-    }
-
-    // Jika belum pernah menyelesaikan ujian ini, pastikan modal hasil tertutup & mulai dari awal
     setIsExamFinished(false);
     setIsResultModalOpen(false);
     setExamResultData({
@@ -147,55 +103,54 @@ function ExamContent() {
       return;
     }
 
-    if (resolvedUserId === 'guest') {
+    if (currentUserId === 'guest') {
       setStudentExamId('guest');
       setIsInitializing(false);
       return;
     }
 
     callExamLifecycleApi('start', {
-      user_id: Number(resolvedUserId),
+      user_id: Number(currentUserId),
       exam_id: Number(examId),
     })
       .then((data) => {
         if (data.student_exam_id) {
           setStudentExamId(String(data.student_exam_id));
-          localStorage.setItem(examSessionKey, String(data.student_exam_id));
         } else {
-          setStudentExamId(`session_${resolvedUserId}_${examId}`);
+          setStudentExamId(`session_${currentUserId}_${examId}`);
         }
       })
       .catch((err) => {
         console.error('Gagal memulai sesi ujian:', err);
-        setStudentExamId(`session_${resolvedUserId}_${examId}`);
+        setStudentExamId(`session_${currentUserId}_${examId}`);
       })
       .finally(() => {
         setIsInitializing(false);
       });
-  }, [
-    currentUserId,
-    resolvedUserId,
-    examId,
-    urlStudentExamId,
-    examDoneKey,
-    examAnswersKey,
-    examScoreKey,
-    examSessionKey,
-  ]);
+  }, [currentUserId, examId, urlStudentExamId]);
 
   const activeSessionId = studentExamId || 'pending';
-  const timerKey = `cbt_timer_${resolvedUserId}_${examId}_${activeSessionId}`;
+  const timerKey = `cbt_timer_${currentUserId}_${examId}_${activeSessionId}`;
+  const answersKey = `cbt_answers_${currentUserId}_${examId}_${activeSessionId}`;
+  const scoreKey = `cbt_score_${currentUserId}_${examId}_${activeSessionId}`;
 
   useEffect(() => {
-    if (isInitializing || isExamFinished) return;
+    if (isInitializing || !studentExamId || isExamFinished) return;
 
     if (typeof window !== 'undefined') {
+      const savedAns = localStorage.getItem(answersKey);
+      if (savedAns) {
+        try {
+          setAnswers(JSON.parse(savedAns));
+        } catch {}
+      }
+
       const savedTime = localStorage.getItem(timerKey);
       if (savedTime !== null && !Number.isNaN(Number(savedTime)) && Number(savedTime) > 0) {
         setTimeLeft(Number(savedTime));
       }
     }
-  }, [isInitializing, isExamFinished, timerKey]);
+  }, [isInitializing, studentExamId, isExamFinished, answersKey, timerKey]);
 
   useEffect(() => {
     if (!examId) return;
@@ -232,9 +187,8 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
-  // 2. ANSWER
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
-    if (isExamFinished || resolvedUserId === 'guest') return;
+    if (isExamFinished || currentUserId === 'guest') return;
     const numericSessionId = Number(studentExamId);
     if (!numericSessionId) return;
 
@@ -373,27 +327,6 @@ function ExamContent() {
     [questions, getQuestionScoreRatio]
   );
 
-  // Hitung skor saat revisit jika ujian memang sudah selesai & belum ada skor tersimpan
-  useEffect(() => {
-    if (!isExamFinished || questions.length === 0) return;
-    if (examResultData.hasCalculated) return;
-
-    const computed = computeTotalScoreFromAnswers(answers);
-    localStorage.setItem(examScoreKey, String(computed));
-    setExamResultData({
-      score: computed,
-      status: computed >= 80 ? 'Tinggi' : computed >= 60 ? 'Sedang' : 'Rendah',
-      hasCalculated: true,
-    });
-  }, [
-    isExamFinished,
-    questions,
-    answers,
-    examResultData.hasCalculated,
-    computeTotalScoreFromAnswers,
-    examScoreKey,
-  ]);
-
   const checkIsCorrect = (q: any, userAns: any) => {
     return getQuestionScoreRatio(q, userAns) >= 0.99;
   };
@@ -430,7 +363,7 @@ function ExamContent() {
       return;
     }
     const computed = computeTotalScoreFromAnswers(answers);
-    localStorage.setItem(examScoreKey, String(computed));
+    localStorage.setItem(scoreKey, String(computed));
     setExamResultData({
       score: computed,
       status: computed >= 80 ? 'Tinggi' : computed >= 60 ? 'Sedang' : 'Rendah',
@@ -439,7 +372,6 @@ function ExamContent() {
     setIsResultModalOpen(true);
   };
 
-  // 3. FINISH EXAM
   const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
@@ -449,7 +381,7 @@ function ExamContent() {
       const totalTimeSpent = 90 * 60 - timeLeft;
       const numericSessionId = Number(studentExamId);
 
-      if (resolvedUserId !== 'guest' && numericSessionId) {
+      if (currentUserId !== 'guest' && numericSessionId) {
         await callExamLifecycleApi('finish', {
           student_exam_id: numericSessionId,
           final_score: calculatedScore,
@@ -459,14 +391,7 @@ function ExamContent() {
       }
 
       setIsExamFinished(true);
-      if (resolvedUserId !== 'guest') {
-        localStorage.setItem(examDoneKey, 'true');
-        localStorage.setItem(examScoreKey, String(calculatedScore));
-        localStorage.setItem(examAnswersKey, JSON.stringify(answers));
-        if (studentExamId) {
-          localStorage.setItem(examSessionKey, studentExamId);
-        }
-      }
+      localStorage.setItem(scoreKey, String(calculatedScore));
 
       setExamResultData({
         score: calculatedScore,
@@ -478,11 +403,7 @@ function ExamContent() {
       console.error('Error saat menyelesaikan ujian:', error);
       const fallbackScore = computeTotalScoreFromAnswers(answers);
       setIsExamFinished(true);
-      if (resolvedUserId !== 'guest') {
-        localStorage.setItem(examDoneKey, 'true');
-        localStorage.setItem(examScoreKey, String(fallbackScore));
-        localStorage.setItem(examAnswersKey, JSON.stringify(answers));
-      }
+      localStorage.setItem(scoreKey, String(fallbackScore));
       setExamResultData({
         score: fallbackScore,
         status: fallbackScore >= 80 ? 'Tinggi' : fallbackScore >= 60 ? 'Sedang' : 'Rendah',
@@ -514,7 +435,7 @@ function ExamContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExamStarted, isExamFinished, isResultModalOpen, isInitializing, timerKey]);
 
-  if (loading || isInitializing || currentUserId === null) {
+  if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
         <p className="font-bold text-[#40b159] animate-pulse text-lg">Memuat Sesi Ujian...</p>
@@ -522,7 +443,7 @@ function ExamContent() {
     );
   }
 
-  if (!isExamStarted && !isExamFinished) {
+  if (!isExamStarted) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex flex-col items-center justify-center p-4 font-sans">
         <h1 className="text-2xl md:text-3xl font-extrabold text-[#2a3038] mb-6 text-center tracking-wide">
@@ -539,7 +460,7 @@ function ExamContent() {
               Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.
             </li>
             <li>
-              Ujian hanya dikerjakan satu kali; setelah diakhiri, Anda dapat melihat rekap nilai dan pembahasan kapan saja.
+              Kunci jawaban dan pembahasan muncul setelah Anda mengakhiri ujian.
             </li>
           </ol>
         </div>
@@ -599,7 +520,7 @@ function ExamContent() {
     if (isExamFinished) return;
     const updatedAnswers = { ...answers, [currentQ.id]: label };
     setAnswers(updatedAnswers);
-    localStorage.setItem(examAnswersKey, JSON.stringify(updatedAnswers));
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, label);
   };
 
@@ -610,7 +531,7 @@ function ExamContent() {
     const next = isChecked ? list.filter((a: string) => a !== label) : [...list, label];
     const updatedAnswers = { ...answers, [currentQ.id]: next };
     setAnswers(updatedAnswers);
-    localStorage.setItem(examAnswersKey, JSON.stringify(updatedAnswers));
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, next);
   };
 
@@ -623,7 +544,7 @@ function ExamContent() {
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
     setAnswers(updatedAnswers);
-    localStorage.setItem(examAnswersKey, JSON.stringify(updatedAnswers));
+    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
@@ -640,7 +561,7 @@ function ExamContent() {
             isExamFinished ? 'text-gray-400' : 'text-red-500'
           }`}
         >
-          {isExamFinished ? 'Ujian Telah Selesai (Rekap & Pembahasan)' : formatTime(timeLeft)}
+          {isExamFinished ? 'Ujian Telah Selesai (Waktu Berhenti)' : formatTime(timeLeft)}
         </div>
 
         <div className="flex items-center gap-3">
@@ -728,7 +649,6 @@ function ExamContent() {
               </div>
             )}
 
-            {/* A. TIPE SINGLE CHOICE */}
             {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
@@ -793,7 +713,6 @@ function ExamContent() {
               </div>
             )}
 
-            {/* B. TIPE MULTIPLE CHOICE */}
             {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') &&
               (() => {
                 let keyArr: string[] = [];
@@ -894,7 +813,6 @@ function ExamContent() {
                 );
               })()}
 
-            {/* C. TIPE TRUE / FALSE */}
             {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') &&
               (() => {
                 let keyObj: { [key: string]: any } = {};
