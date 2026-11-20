@@ -10,16 +10,51 @@ const BACKEND_URL =
 type JenjangType = 'SD' | 'SMP' | 'SMA/SMK';
 
 function normalizeJenjang(raw?: any): JenjangType | null {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-  const upper = String(raw).trim().toUpperCase();
-  if (upper.includes('SMA') || upper.includes('SMK') || upper.includes('MA')) {
+  if (raw === undefined || raw === null) return null;
+  const str = String(raw).trim();
+  if (!str) return null;
+
+  const upper = str.toUpperCase();
+  if (
+    upper.includes('SMA') ||
+    upper.includes('SMK') ||
+    upper === 'MA' ||
+    upper.startsWith('SMA') ||
+    upper.startsWith('SMK')
+  ) {
     return 'SMA/SMK';
   }
-  if (upper.includes('SMP') || upper.includes('MTS')) {
+  if (upper.includes('SMP') || upper.includes('MTS') || upper.startsWith('SMP')) {
     return 'SMP';
   }
-  if (upper.includes('SD') || upper.includes('MI')) {
+  if (upper === 'SD' || upper.startsWith('SD ') || upper.startsWith('SD-') || upper.includes('MI')) {
     return 'SD';
+  }
+
+  const num = Number(str);
+  if (!Number.isNaN(num)) {
+    if (num >= 1 && num <= 6) return 'SD';
+    if (num >= 7 && num <= 9) return 'SMP';
+    if (num >= 10 && num <= 12) return 'SMA/SMK';
+  }
+
+  return null;
+}
+
+function detectRowJenjang(row: any): JenjangType | null {
+  if (!row || typeof row !== 'object') return null;
+  const candidates = [
+    row.jenjang,
+    row.jenjang_pendidikan,
+    row.tingkat_jenjang,
+    row.level,
+    row.tingkat_kelas,
+    row.kelas_id,
+    row.kelas,
+  ];
+  for (const val of candidates) {
+    const parsed = normalizeJenjang(val);
+    if (parsed) return parsed;
   }
   return null;
 }
@@ -84,18 +119,20 @@ function classifyFromScore(score: number, existingLabel?: any): string {
   return 'Rendah';
 }
 
-function formatLeaderboardRows(rows: any[], targetJenjang: JenjangType, hasJenjang: boolean) {
+function formatLeaderboardRows(
+  rows: any[],
+  targetJenjang: JenjangType,
+  hasJenjang: boolean
+) {
   const byUser = new Map<string, any>();
 
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
 
-    const detectedJenjang = normalizeJenjang(
-      row.jenjang || row.jenjang_pendidikan || row.level || row.tingkat_jenjang
-    );
+    const detectedJenjang = detectRowJenjang(row);
 
-    // Jika parameter jenjang diminta, hanya lewati jika item punya jenjang eksplisit yang berbeda
-    if (hasJenjang && detectedJenjang && detectedJenjang !== targetJenjang) {
+    // Filter ketat: jika parameter jenjang diminta, hanya tampilkan yang cocok dengan jenjang tersebut
+    if (hasJenjang && detectedJenjang !== targetJenjang) {
       continue;
     }
 
@@ -190,7 +227,7 @@ export async function GET(request: NextRequest) {
 
     const processed = formatLeaderboardRows(rawList, targetJenjang, hasJenjang);
 
-    let computedUserRank = data.userRank || null;
+    let computedUserRank = null;
     if (userId) {
       const idx = processed.findIndex((item: any) => String(item.user_id) === String(userId));
       if (idx !== -1) {
@@ -208,7 +245,7 @@ export async function GET(request: NextRequest) {
         jenjang: hasJenjang ? targetJenjang : data.jenjang,
         leaderboard: processed.slice(0, 10),
         userRank: computedUserRank,
-        totalSiswa: processed.length || Number(data.totalSiswa) || 0,
+        totalSiswa: processed.length,
       },
       { status: response.status }
     );
