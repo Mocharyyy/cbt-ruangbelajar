@@ -92,7 +92,7 @@ function ExamContent() {
   const examScoreKey = `cbt_exam_score_${currentUserId}_${examId}`;
   const examSessionKey = `cbt_exam_session_${currentUserId}_${examId}`;
 
-  // 1. START EXAM: cek apakah ujian ini sudah pernah diselesaikan untuk user & examId ini
+  // 1. START EXAM: hanya tampilkan rekap jika memang sudah pernah diselesaikan & tersimpan
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -101,13 +101,16 @@ function ExamContent() {
     const savedAnsStr = localStorage.getItem(examAnswersKey);
     const savedScoreStr = localStorage.getItem(examScoreKey);
 
+    let parsedSavedAns: { [key: number]: any } = {};
     if (savedAnsStr) {
       try {
-        setAnswers(JSON.parse(savedAnsStr));
+        parsedSavedAns = JSON.parse(savedAnsStr);
+        setAnswers(parsedSavedAns);
       } catch {}
     }
 
-    if (savedScoreStr !== null && !Number.isNaN(Number(savedScoreStr))) {
+    const hasSavedScore = savedScoreStr !== null && !Number.isNaN(Number(savedScoreStr));
+    if (hasSavedScore) {
       const numScore = Number(savedScoreStr);
       setExamResultData({
         score: numScore,
@@ -116,6 +119,7 @@ function ExamContent() {
       });
     }
 
+    // Jika siswa sudah menyelesaikan mapel ini sebelumnya, langsung buka rekap hasil & pembahasan
     if (doneLocally) {
       if (savedSessionId) setStudentExamId(savedSessionId);
       else if (urlStudentExamId) setStudentExamId(urlStudentExamId);
@@ -126,16 +130,18 @@ function ExamContent() {
       return;
     }
 
+    // Jika belum selesai, pastikan mulai dari awal (petunjuk -> mulai mengerjakan)
+    setIsExamFinished(false);
+    setIsResultModalOpen(false);
+
     if (urlStudentExamId) {
       setStudentExamId(urlStudentExamId);
-      setIsExamFinished(false);
       setIsInitializing(false);
       return;
     }
 
     if (currentUserId === 'guest') {
       setStudentExamId('guest');
-      setIsExamFinished(false);
       setIsInitializing(false);
       return;
     }
@@ -150,16 +156,6 @@ function ExamContent() {
           localStorage.setItem(examSessionKey, String(data.student_exam_id));
         } else {
           setStudentExamId(`session_${currentUserId}_${examId}`);
-        }
-
-        // Jika di database ujian ini sudah berstatus completed, langsung kunci mode rekap & pembahasan
-        if (data.is_completed) {
-          localStorage.setItem(examDoneKey, 'true');
-          setIsExamFinished(true);
-          setIsExamStarted(true);
-          setIsResultModalOpen(true);
-        } else {
-          setIsExamFinished(false);
         }
       })
       .catch((err) => {
@@ -369,7 +365,7 @@ function ExamContent() {
     [questions, getQuestionScoreRatio]
   );
 
-  // Sinkronkan skor jika ujian sudah selesai namun baru dibuka kembali dari dashboard
+  // Hitung skor sekali saat membuka kembali ujian yang sudah selesai jika belum ada skor tersimpan
   useEffect(() => {
     if (!isExamFinished || questions.length === 0) return;
     if (examResultData.hasCalculated) return;
@@ -531,7 +527,7 @@ function ExamContent() {
               Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.
             </li>
             <li>
-              Ujian hanya dapat dikerjakan satu kali; setelah diakhiri, Anda dapat melihat rekap nilai dan pembahasan.
+              Ujian hanya dikerjakan satu kali; setelah diakhiri, Anda dapat melihat rekap nilai dan pembahasan kapan saja.
             </li>
           </ol>
         </div>
