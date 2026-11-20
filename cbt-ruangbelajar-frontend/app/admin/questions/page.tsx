@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 
 interface Question {
@@ -14,11 +14,71 @@ interface Question {
   kunci_jawaban: string;
 }
 
+interface ExamItem {
+  id?: number | string;
+  exam_id?: number | string;
+  judul_ujian?: string;
+  mapel?: string;
+  title?: string;
+}
+
 export default function AdminQuestions() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [examId, setExamId] = useState<string | null>(null);
   const [examTitle, setExamTitle] = useState<string>('Memuat...');
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const loadQuestionsAndExam = useCallback(async (id: string) => {
+    setLoading(true);
+    try {
+      const [qRes, eRes] = await Promise.all([
+        fetch(`/api/questions?exam_id=${encodeURIComponent(id)}`, {
+          cache: 'no-store',
+        }),
+        fetch('/api/exams', {
+          cache: 'no-store',
+        }),
+      ]);
+
+      const qData = await qRes.json();
+      if (qData.success && Array.isArray(qData.questions)) {
+        setQuestions(qData.questions);
+      } else if (Array.isArray(qData)) {
+        setQuestions(qData);
+      } else if (Array.isArray(qData.data)) {
+        setQuestions(qData.data);
+      } else {
+        setQuestions([]);
+      }
+
+      const eData = await eRes.json();
+      const examsList: ExamItem[] = Array.isArray(eData)
+        ? eData
+        : eData.exams || eData.data || [];
+
+      if (Array.isArray(examsList)) {
+        const currentExam = examsList.find(
+          (e) => String(e.id) === String(id) || String(e.exam_id) === String(id)
+        );
+        if (currentExam) {
+          setExamTitle(
+            currentExam.judul_ujian ||
+              currentExam.mapel ||
+              currentExam.title ||
+              'Ujian'
+          );
+        } else {
+          setExamTitle('Ujian Tidak Ditemukan');
+        }
+      }
+    } catch (err) {
+      console.error('Gagal mengambil data soal/ujian:', err);
+      setExamTitle('Ujian (ID: ' + id + ')');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -26,78 +86,49 @@ export default function AdminQuestions() {
     setExamId(id);
 
     if (id) {
-      // 1. Ambil daftar soal berdasarkan exam_id
-      fetch(`/api/questions?exam_id=${id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.questions)) {
-            setQuestions(data.questions);
-          } else if (Array.isArray(data)) {
-            setQuestions(data);
-          } else if (Array.isArray(data.data)) {
-            setQuestions(data.data);
-          } else {
-            setQuestions([]);
-          }
-          setLoading(false);
-        })
-        .catch((err) => {
-          console.error('Gagal mengambil soal:', err);
-          setLoading(false);
-        });
-
-      // 2. Ambil informasi nama ujian dari database (/api/exams)
-      fetch('/api/exams')
-        .then((res) => res.json())
-        .then((data) => {
-          const examsList = Array.isArray(data) ? data : (data.exams || data.data || []);
-          if (Array.isArray(examsList)) {
-            const currentExam = examsList.find(
-              (e: any) => String(e.id) === String(id) || String(e.exam_id) === String(id)
-            );
-            if (currentExam) {
-              setExamTitle(currentExam.judul_ujian || currentExam.mapel || currentExam.title || 'Ujian');
-            } else {
-              setExamTitle('Ujian Tidak Ditemukan');
-            }
-          }
-        })
-        .catch((err) => {
-          console.error('Gagal mengambil info ujian:', err);
-          setExamTitle('Ujian (ID: ' + id + ')');
-        });
+      loadQuestionsAndExam(id);
     } else {
+      setExamTitle('Pilih Paket Ujian');
       setLoading(false);
     }
-  }, []);
+  }, [loadQuestionsAndExam]);
 
-  // Fungsi Hapus Soal
   const handleDelete = async (questionId: number) => {
     if (!confirm('Yakin ingin menghapus soal ini?')) return;
 
+    setDeletingId(questionId);
     try {
-      // Menggunakan query params /api/questions?id=... agar aman dari 404
-      const res = await fetch(`/api/questions?id=${questionId}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
+      const res = await fetch(
+        `/api/questions?id=${encodeURIComponent(String(questionId))}`,
+        {
+          method: 'DELETE',
+          cache: 'no-store',
+        }
+      );
+
+      let data: { success?: boolean; message?: string; error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
 
       if (res.ok && (data.success || data.message)) {
         setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       } else {
-        // Fallback jika API hapus menggunakan /api/questions/ID
-        const res2 = await fetch(`/api/questions/${questionId}`, { method: 'DELETE' });
-        if (res2.ok) {
-          setQuestions((prev) => prev.filter((q) => q.id !== questionId));
-        } else {
-          alert('Gagal menghapus soal.');
-        }
+        alert(data.message || data.error || 'Gagal menghapus soal.');
       }
     } catch (err) {
       console.error('Error delete:', err);
-      alert('Terjadi kesalahan saat menghapus.');
+      alert('Terjadi kesalahan saat menghapus soal.');
+    } finally {
+      setDeletingId(null);
     }
   };
+
+  const addQuestionHref = examId
+    ? `/admin/add-question?exam_id=${encodeURIComponent(examId)}`
+    : '/admin/add-question';
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
@@ -121,13 +152,17 @@ export default function AdminQuestions() {
               </span>
             </div>
             <p className="text-sm text-gray-500">
-              Total Soal Tersedia: <strong className="text-slate-700">{questions.length} / 50 Soal</strong> (Durasi: 90 Menit)
+              Total Soal Tersedia:{' '}
+              <strong className="text-slate-700">
+                {questions.length} / 50 Soal
+              </strong>{' '}
+              (Durasi: 90 Menit)
             </p>
           </div>
 
           <div className="mt-4 md:mt-0">
             <Link
-              href={`/admin/add-question?exam_id=${examId}`}
+              href={addQuestionHref}
               className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-xl text-sm shadow-sm transition inline-block"
             >
               + Tambah Soal Baru
@@ -137,12 +172,16 @@ export default function AdminQuestions() {
 
         {/* Daftar Soal */}
         {loading ? (
-          <div className="text-center py-16 text-gray-500">Memuat data soal...</div>
+          <div className="text-center py-16 text-gray-500">
+            Memuat data soal...
+          </div>
         ) : questions.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 text-center">
-            <p className="text-gray-500 mb-4">Belum ada soal untuk mata pelajaran ini.</p>
+            <p className="text-gray-500 mb-4">
+              Belum ada soal untuk mata pelajaran ini.
+            </p>
             <Link
-              href={`/admin/add-question?exam_id=${examId}`}
+              href={addQuestionHref}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-xl text-sm inline-block"
             >
               Buat Soal Pertama
@@ -151,8 +190,11 @@ export default function AdminQuestions() {
         ) : (
           <div className="space-y-4">
             {questions.map((q, index) => (
-              <div key={q.id || index} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between">
-                <div>
+              <div
+                key={q.id || index}
+                className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between"
+              >
+                <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">
                     <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded">
                       Soal No. {index + 1}
@@ -161,8 +203,10 @@ export default function AdminQuestions() {
                       Kunci: {q.kunci_jawaban}
                     </span>
                   </div>
-                  <p className="text-slate-800 font-medium text-base mb-3">{q.soal}</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                  <p className="text-slate-800 font-medium text-base mb-3 whitespace-pre-wrap">
+                    {q.soal}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
                     <div>A. {q.opsi_a}</div>
                     <div>B. {q.opsi_b}</div>
                     <div>C. {q.opsi_c}</div>
@@ -170,12 +214,22 @@ export default function AdminQuestions() {
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2 ml-4">
-                  <button
-                    onClick={() => handleDelete(q.id)}
-                    className="text-red-600 hover:bg-red-50 p-2 rounded-lg text-xs font-semibold transition"
+                <div className="flex items-center space-x-2 ml-4 shrink-0">
+                  <Link
+                    href={`/admin/add-question?exam_id=${encodeURIComponent(
+                      String(q.exam_id || examId || '')
+                    )}&edit_id=${encodeURIComponent(String(q.id))}`}
+                    className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
                   >
-                    Hapus
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={deletingId === q.id}
+                    onClick={() => handleDelete(q.id)}
+                    className="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50"
+                  >
+                    {deletingId === q.id ? 'Menghapus...' : 'Hapus'}
                   </button>
                 </div>
               </div>
