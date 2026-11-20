@@ -9,7 +9,7 @@ const cloudinary = require('cloudinary').v2;
 // MIDDLEWARE CONFIGURATION
 // ==========================================
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 
 // ==========================================
@@ -47,6 +47,18 @@ if (process.env.DB_SSL === 'true') {
 
 const db = mysql.createPool(dbConfig);
 
+async function ensureColumnExists(tableName, columnName, definition) {
+  const [rows] = await db.query(
+    `SHOW COLUMNS FROM \`${tableName}\` LIKE ?`,
+    [columnName]
+  );
+  if (rows.length === 0) {
+    await db.query(
+      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
+    );
+  }
+}
+
 // ==========================================
 // INISIALISASI TABEL & DATA AWAL (IDEMPOTENT)
 // ==========================================
@@ -65,6 +77,8 @@ async function initializeDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await ensureColumnExists('users', 'kelas_id', 'VARCHAR(50) NULL AFTER tingkat_kelas');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS mapel (
@@ -95,15 +109,26 @@ async function initializeDatabase() {
         tipe_soal VARCHAR(50) DEFAULT 'single',
         soal TEXT,
         image_url TEXT,
+        teks_sesudah_gambar TEXT,
         opsi_a TEXT,
         opsi_b TEXT,
         opsi_c TEXT,
         opsi_d TEXT,
         opsi_e TEXT,
+        opsi_a_img TEXT,
+        opsi_b_img TEXT,
+        opsi_c_img TEXT,
+        opsi_d_img TEXT,
         kunci_jawaban VARCHAR(100),
         INDEX idx_questions_exam (exam_id)
       )
     `);
+
+    await ensureColumnExists('questions', 'teks_sesudah_gambar', 'TEXT NULL AFTER image_url');
+    await ensureColumnExists('questions', 'opsi_a_img', 'TEXT NULL AFTER opsi_e');
+    await ensureColumnExists('questions', 'opsi_b_img', 'TEXT NULL AFTER opsi_a_img');
+    await ensureColumnExists('questions', 'opsi_c_img', 'TEXT NULL AFTER opsi_b_img');
+    await ensureColumnExists('questions', 'opsi_d_img', 'TEXT NULL AFTER opsi_c_img');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS student_exams (
@@ -287,6 +312,61 @@ function resolveJenjangLabel(rawKelas, rawJenjang) {
   return 'SD';
 }
 
+function normalizeQuestionPayload(body) {
+  const {
+    exam_id,
+    tipe_soal,
+    teks_sebelum_gambar,
+    soal,
+    gambar_soal,
+    image_url,
+    teks_sesudah_gambar,
+    teks_lanjutan,
+    opsi_a_text,
+    opsi_a,
+    opsi_b_text,
+    opsi_b,
+    opsi_c_text,
+    opsi_c,
+    opsi_d_text,
+    opsi_d,
+    opsi_e_text,
+    opsi_e,
+    opsi_a_img,
+    opsi_b_img,
+    opsi_c_img,
+    opsi_d_img,
+    kunci_jawaban
+  } = body;
+
+  let formattedKunci = '';
+  if (Array.isArray(kunci_jawaban)) {
+    formattedKunci = kunci_jawaban.join(',').trim();
+  } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
+    formattedKunci = Object.values(kunci_jawaban).join(',').trim();
+  } else {
+    formattedKunci = String(kunci_jawaban || '').trim();
+  }
+
+  return {
+    examId: Number(exam_id) || 1,
+    tipeSoal: tipe_soal || 'single',
+    questionText: teks_sebelum_gambar ?? soal ?? '',
+    questionImg: gambar_soal ?? image_url ?? null,
+    afterText: teks_sesudah_gambar ?? teks_lanjutan ?? '',
+    optA: opsi_a_text ?? opsi_a ?? '',
+    optB: opsi_b_text ?? opsi_b ?? '',
+    optC: opsi_c_text ?? opsi_c ?? '',
+    optD: opsi_d_text ?? opsi_d ?? '',
+    optE: opsi_e_text ?? opsi_e ?? '',
+    optAImg: opsi_a_img || null,
+    optBImg: opsi_b_img || null,
+    optCImg: opsi_c_img || null,
+    optDImg: opsi_d_img || null,
+    formattedKunci
+  };
+}
+
 // ==========================================
 // ENDPOINT AUTH & PENDAFTARAN SISWA
 // ==========================================
@@ -321,11 +401,17 @@ app.post('/api/student/register', async (req, res) => {
       generatedPasscode
     ]);
 
+    let userId = result.insertId || null;
+    if (!userId) {
+      const [rows] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+      userId = rows[0]?.id || null;
+    }
+
     return res.json({
       success: true,
       message: 'Registrasi berhasil',
       data: {
-        id: result.insertId || null,
+        id: userId,
         nama,
         email,
         sekolah: sekolah || '',
@@ -406,56 +492,53 @@ app.post('/api/admin/upload', upload.single('image'), async (req, res) => {
   }
 });
 
+app.get('/api/admin/questions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await db.query('SELECT * FROM questions WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Soal tidak ditemukan' });
+    }
+    return res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error get single question:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.post('/api/admin/questions', async (req, res) => {
   try {
-    const {
-      exam_id,
-      tipe_soal,
-      teks_sebelum_gambar,
-      soal,
-      gambar_soal,
-      image_url,
-      opsi_a_text, opsi_a,
-      opsi_b_text, opsi_b,
-      opsi_c_text, opsi_c,
-      opsi_d_text, opsi_d,
-      opsi_e_text, opsi_e,
-      kunci_jawaban
-    } = req.body;
-
-    const questionText = teks_sebelum_gambar || soal || '';
-    const questionImg = gambar_soal || image_url || null;
-    const optA = opsi_a_text || opsi_a || '';
-    const optB = opsi_b_text || opsi_b || '';
-    const optC = opsi_c_text || opsi_c || '';
-    const optD = opsi_d_text || opsi_d || '';
-    const optE = opsi_e_text || opsi_e || '';
-
-    let formattedKunci = '';
-    if (Array.isArray(kunci_jawaban)) {
-      formattedKunci = kunci_jawaban.join(',').trim();
-    } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
-      formattedKunci = Object.values(kunci_jawaban).join(',').trim();
-    } else {
-      formattedKunci = String(kunci_jawaban || '').trim();
-    }
+    const q = normalizeQuestionPayload(req.body);
 
     const query = `
       INSERT INTO questions
-      (exam_id, tipe_soal, soal, image_url, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, kunci_jawaban)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (exam_id, tipe_soal, soal, image_url, teks_sesudah_gambar, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, opsi_a_img, opsi_b_img, opsi_c_img, opsi_d_img, kunci_jawaban)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    await db.query(query, [
-      exam_id || 1,
-      tipe_soal || 'single',
-      questionText,
-      questionImg,
-      optA, optB, optC, optD, optE,
-      formattedKunci
+    const [result] = await db.query(query, [
+      q.examId,
+      q.tipeSoal,
+      q.questionText,
+      q.questionImg,
+      q.afterText,
+      q.optA,
+      q.optB,
+      q.optC,
+      q.optD,
+      q.optE,
+      q.optAImg,
+      q.optBImg,
+      q.optCImg,
+      q.optDImg,
+      q.formattedKunci
     ]);
 
-    return res.json({ success: true, message: 'Soal berhasil disimpan ke bank soal!' });
+    return res.json({
+      success: true,
+      id: result.insertId,
+      message: 'Soal berhasil disimpan ke bank soal!'
+    });
   } catch (error) {
     console.error('Error insert question:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -465,51 +548,33 @@ app.post('/api/admin/questions', async (req, res) => {
 app.put('/api/admin/questions/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      tipe_soal,
-      teks_sebelum_gambar,
-      soal,
-      gambar_soal,
-      image_url,
-      opsi_a_text, opsi_a,
-      opsi_b_text, opsi_b,
-      opsi_c_text, opsi_c,
-      opsi_d_text, opsi_d,
-      opsi_e_text, opsi_e,
-      kunci_jawaban
-    } = req.body;
-
-    const questionText = teks_sebelum_gambar || soal || '';
-    const questionImg = gambar_soal || image_url || null;
-    const optA = opsi_a_text || opsi_a || '';
-    const optB = opsi_b_text || opsi_b || '';
-    const optC = opsi_c_text || opsi_c || '';
-    const optD = opsi_d_text || opsi_d || '';
-    const optE = opsi_e_text || opsi_e || '';
-
-    let formattedKunci = '';
-    if (Array.isArray(kunci_jawaban)) {
-      formattedKunci = kunci_jawaban.join(',').trim();
-    } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
-      formattedKunci = Object.values(kunci_jawaban).join(',').trim();
-    } else {
-      formattedKunci = String(kunci_jawaban || '').trim();
-    }
+    const q = normalizeQuestionPayload(req.body);
 
     const query = `
       UPDATE questions SET
-        tipe_soal = ?, soal = ?, image_url = ?,
+        exam_id = ?, tipe_soal = ?, soal = ?, image_url = ?, teks_sesudah_gambar = ?,
         opsi_a = ?, opsi_b = ?, opsi_c = ?, opsi_d = ?, opsi_e = ?,
+        opsi_a_img = ?, opsi_b_img = ?, opsi_c_img = ?, opsi_d_img = ?,
         kunci_jawaban = ?
       WHERE id = ?
     `;
 
     await db.query(query, [
-      tipe_soal || 'single',
-      questionText,
-      questionImg,
-      optA, optB, optC, optD, optE,
-      formattedKunci,
+      q.examId,
+      q.tipeSoal,
+      q.questionText,
+      q.questionImg,
+      q.afterText,
+      q.optA,
+      q.optB,
+      q.optC,
+      q.optD,
+      q.optE,
+      q.optAImg,
+      q.optBImg,
+      q.optCImg,
+      q.optDImg,
+      q.formattedKunci,
       id
     ]);
 
@@ -542,16 +607,16 @@ app.delete('/api/admin/questions/:id', async (req, res) => {
 app.get('/api/admin/questions', async (req, res) => {
   try {
     const examId = req.query.exam_id;
-    let query = 'SELECT * FROM questions';
+    let query = 'SELECT * FROM questions ORDER BY id ASC';
     let params = [];
 
     if (examId) {
-      query = 'SELECT * FROM questions WHERE exam_id = ?';
+      query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
       params = [examId];
     }
 
     const [rows] = await db.query(query, params);
-    return res.json({ success: true, total: rows.length, questions: rows });
+    return res.json({ success: true, total: rows.length, questions: rows, data: rows });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -701,6 +766,9 @@ app.get('/api/exams', async (req, res) => {
 app.post('/api/student/start-exam', async (req, res) => {
   try {
     const { user_id, exam_id } = req.body;
+    if (!user_id || !exam_id) {
+      return res.status(400).json({ success: false, message: 'user_id dan exam_id wajib diisi' });
+    }
 
     const [completedExam] = await db.query(
       `SELECT id, status FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'completed'`,
@@ -828,16 +896,36 @@ app.post('/api/exam/finish', async (req, res) => {
   }
 });
 
+app.get('/api/questions', async (req, res) => {
+  try {
+    const examId = req.query.exam_id;
+    let query = 'SELECT * FROM questions ORDER BY id ASC';
+    let params = [];
+
+    if (examId) {
+      query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
+      params = [examId];
+    }
+
+    const [rows] = await db.query(query, params);
+    return res.json({ success: true, total: rows.length, questions: rows, data: rows });
+  } catch (error) {
+    console.error('Error fetching /api/questions:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/exams/:examId/questions', async (req, res) => {
   try {
     const examId = req.params.examId;
 
-    const [questions] = await db.query('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+    const [questions] = await db.query('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
     const [examInfo] = await db.query('SELECT * FROM exams WHERE id = ?', [examId]);
 
     return res.json({
       success: true,
       data: questions,
+      questions,
       exam: examInfo.length > 0 ? examInfo[0] : null
     });
   } catch (error) {
