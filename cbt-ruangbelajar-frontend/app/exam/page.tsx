@@ -3,10 +3,23 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  'http://139.190.107.150:5000'
+).replace(/\/+$/, '');
+
+function resolveAssetUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const normalizedPath = url.startsWith('/') ? url : `/${url}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+}
+
 function ExamContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   const examId = searchParams.get('exam_id') || searchParams.get('examId') || '1';
   const urlStudentExamId = searchParams.get('studentExamId');
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
@@ -14,57 +27,6 @@ function ExamContent() {
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '1');
   const [isInitializing, setIsInitializing] = useState(true);
-
-  useEffect(() => {
-    try {
-      const savedUser = localStorage.getItem('user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        const uid = String(parsed.id || parsed.user_id || 'guest');
-        setCurrentUserId(uid);
-      } else {
-        const fallbackId = localStorage.getItem('user_id') || 'guest';
-        setCurrentUserId(fallbackId);
-      }
-    } catch (e) {
-      setCurrentUserId('guest');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (currentUserId === 'guest' || urlStudentExamId) {
-      if (urlStudentExamId) setStudentExamId(urlStudentExamId);
-      setIsInitializing(false);
-      return;
-    }
-
-    fetch('https://cbt-ruangbelajar-backend.vercel.app/api/student/start-exam', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: Number(currentUserId),
-        exam_id: Number(examId),
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.student_exam_id) {
-          setStudentExamId(String(data.student_exam_id));
-        } else if (data.is_completed) {
-          setIsExamFinished(true);
-          setStudentExamId(String(data.student_exam_id));
-        }
-        setIsInitializing(false);
-      })
-      .catch((err) => {
-        console.error('Gagal memulai sesi ujian:', err);
-        setIsInitializing(false);
-      });
-  }, [currentUserId, examId, urlStudentExamId]);
-
-  const timerKey = `cbt_timer_${currentUserId}_${examId}_${studentExamId}`;
-  const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
-  const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
 
   const [isExamStarted, setIsExamStarted] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
@@ -86,6 +48,59 @@ function ExamContent() {
   });
 
   useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        const uid = String(parsed.id || parsed.user_id || 'guest');
+        setCurrentUserId(uid);
+      } else {
+        const fallbackId = localStorage.getItem('user_id') || 'guest';
+        setCurrentUserId(fallbackId);
+      }
+    } catch {
+      setCurrentUserId('guest');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUserId === 'guest' || urlStudentExamId) {
+      if (urlStudentExamId) setStudentExamId(urlStudentExamId);
+      setIsInitializing(false);
+      return;
+    }
+
+    fetch(`${API_BASE_URL}/api/student/start-exam`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: Number(currentUserId),
+        exam_id: Number(examId),
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.student_exam_id) {
+          setStudentExamId(String(data.student_exam_id));
+        } else if (data.is_completed) {
+          setIsExamFinished(true);
+          if (data.student_exam_id) {
+            setStudentExamId(String(data.student_exam_id));
+          }
+        }
+        setIsInitializing(false);
+      })
+      .catch((err) => {
+        console.error('Gagal memulai sesi ujian:', err);
+        setIsInitializing(false);
+      });
+  }, [currentUserId, examId, urlStudentExamId]);
+
+  const timerKey = `cbt_timer_${currentUserId}_${examId}_${studentExamId}`;
+  const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
+  const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
+
+  useEffect(() => {
     if (isInitializing) return;
 
     if (typeof window !== 'undefined') {
@@ -94,7 +109,9 @@ function ExamContent() {
 
       const savedAns = localStorage.getItem(answersKey);
       if (savedAns) {
-        try { setAnswers(JSON.parse(savedAns)); } catch (e) {}
+        try {
+          setAnswers(JSON.parse(savedAns));
+        } catch {}
       }
 
       const savedTime = localStorage.getItem(timerKey);
@@ -107,7 +124,7 @@ function ExamContent() {
   useEffect(() => {
     if (!examId) return;
 
-    fetch(`https://cbt-ruangbelajar-backend.vercel.app/api/exams/${examId}/questions`)
+    fetch(`${API_BASE_URL}/api/exams/${examId}/questions`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -124,6 +141,220 @@ function ExamContent() {
         setLoading(false);
       });
   }, [examId]);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
+  const saveAnswerToDB = async (questionId: number, answerValue: any) => {
+    if (isExamFinished) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/student/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_exam_id: Number(studentExamId),
+          question_id: questionId,
+          jawaban: answerValue,
+        }),
+      });
+    } catch (err) {
+      console.error('Gagal menyimpan jawaban ke DB:', err);
+    }
+  };
+
+  // 1. Fungsi Evaluasi Parsial per Item (Mengembalikan nilai 0.0 sampai 1.0)
+  const getQuestionScoreRatio = (q: any, userAns: any) => {
+    if (userAns === undefined || userAns === null) return 0;
+    let key = q.kunci_jawaban;
+    if (key === undefined || key === null) return 0;
+
+    const tipe = (q.tipe_soal || 'single').toLowerCase();
+
+    // A. Single Choice (Harus benar mutlak: 1 atau 0)
+    if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
+      if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          if (typeof parsed === 'string') key = parsed;
+        } catch {}
+      }
+      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
+    }
+
+    // B. Multiple Choice (Parsial berdasarkan jumlah pilihan benar yang cocok)
+    if (tipe === 'multiple' || tipe === 'multiple_choice') {
+      let keyArr: string[] = [];
+      if (Array.isArray(key)) {
+        keyArr = key.map((k: any) => String(k).trim().toUpperCase());
+      } else if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          keyArr = Array.isArray(parsed)
+            ? parsed.map((k: any) => String(k).trim().toUpperCase())
+            : key.split(',').map((k: any) => k.trim().toUpperCase());
+        } catch {
+          keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
+        }
+      }
+
+      const userArr = Array.isArray(userAns)
+        ? userAns.map((u: any) => String(u).trim().toUpperCase())
+        : [];
+
+      if (keyArr.length === 0) return 0;
+
+      let correctMatches = 0;
+      let falseSelections = 0;
+
+      userArr.forEach((u) => {
+        if (keyArr.includes(u)) correctMatches++;
+        else falseSelections++;
+      });
+
+      const score = (correctMatches - falseSelections) / keyArr.length;
+      return score > 0 ? score : 0;
+    }
+
+    // C. True / False (Parsial berdasarkan jumlah baris pernyataan yang benar)
+    if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
+      const keyObj: { [key: string]: boolean } = {};
+      if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
+        Object.keys(key).forEach((k) => {
+          const val = key[k];
+          keyObj[k.trim().toUpperCase()] =
+            typeof val === 'boolean'
+              ? val
+              : String(val).toUpperCase() === 'B' ||
+                String(val).toUpperCase() === 'BENAR' ||
+                String(val) === 'true';
+        });
+      } else if (typeof key === 'string') {
+        try {
+          const parsed = JSON.parse(key);
+          if (typeof parsed === 'object' && parsed !== null) {
+            Object.keys(parsed).forEach((k) => {
+              const val = parsed[k];
+              keyObj[k.trim().toUpperCase()] =
+                typeof val === 'boolean'
+                  ? val
+                  : String(val).toUpperCase() === 'B' ||
+                    String(val).toUpperCase() === 'BENAR' ||
+                    String(val) === 'true';
+            });
+          }
+        } catch {
+          const parts = key.split(',').map((v) => v.trim().toUpperCase());
+          parts.forEach((p, idx) => {
+            const labelChar = String.fromCharCode(65 + idx);
+            keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
+          });
+        }
+      }
+
+      const userObj =
+        typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns) ? userAns : {};
+      const keyKeys = Object.keys(keyObj);
+
+      if (keyKeys.length === 0) return 0;
+
+      let correctRows = 0;
+      for (const k of keyKeys) {
+        let matchedUserVal: boolean | undefined = undefined;
+        for (const uk of Object.keys(userObj)) {
+          if (uk.trim().toUpperCase() === k) {
+            matchedUserVal = Boolean(userObj[uk]);
+            break;
+          }
+        }
+        if (matchedUserVal !== undefined && matchedUserVal === keyObj[k]) {
+          correctRows++;
+        }
+      }
+
+      return correctRows / keyKeys.length;
+    }
+
+    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
+  };
+
+  // 2. Helper untuk status centang hijau di modal
+  const checkIsCorrect = (q: any, userAns: any) => {
+    return getQuestionScoreRatio(q, userAns) >= 0.99;
+  };
+
+  const getCorrectKeyString = (q: any) => {
+    const key = q.kunci_jawaban;
+    if (key === undefined || key === null) return '-';
+    if (typeof key === 'string') {
+      try {
+        const parsed = JSON.parse(key);
+        if (typeof parsed === 'string') return parsed;
+        if (Array.isArray(parsed)) return parsed.join(', ');
+        if (typeof parsed === 'object' && parsed !== null) {
+          return Object.entries(parsed)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(', ');
+        }
+      } catch {}
+      return key;
+    }
+    if (Array.isArray(key)) return key.join(', ');
+    if (typeof key === 'object' && key !== null) {
+      return Object.entries(key)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    }
+    return String(key);
+  };
+
+  const handleFinishExam = async () => {
+    if (isSubmitting || isExamFinished) return;
+    setIsSubmitting(true);
+
+    try {
+      let totalEarnedScore = 0;
+      questions.forEach((q: any) => {
+        const userAns = answers[q.id];
+        const ratio = getQuestionScoreRatio(q, userAns);
+        totalEarnedScore += ratio;
+      });
+
+      const totalSoal = questions.length > 0 ? questions.length : 1;
+      const calculatedScore = Math.round((totalEarnedScore / totalSoal) * 100);
+      const totalTimeSpent = 90 * 60 - timeLeft;
+
+      await fetch(`${API_BASE_URL}/api/exam/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_exam_id: Number(studentExamId),
+          final_score: calculatedScore,
+          duration: totalTimeSpent > 0 ? totalTimeSpent : 0,
+          answers: answers,
+        }),
+      });
+
+      setIsExamFinished(true);
+      localStorage.setItem(finishedKey, 'true');
+
+      setExamResultData({
+        score: calculatedScore,
+        status: calculatedScore >= 80 ? 'Tinggi' : calculatedScore >= 60 ? 'Sedang' : 'Rendah',
+      });
+      setIsResultModalOpen(true);
+    } catch (error: any) {
+      console.error('Error saat menyelesaikan ujian:', error);
+      setIsExamFinished(true);
+      localStorage.setItem(finishedKey, 'true');
+      setIsResultModalOpen(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (!isExamStarted || isExamFinished || isResultModalOpen || isInitializing) return;
@@ -142,212 +373,9 @@ function ExamContent() {
     }, 1000);
 
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExamStarted, isExamFinished, isResultModalOpen, isInitializing, timerKey]);
 
-  const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
-  };
-
-  const saveAnswerToDB = async (questionId: number, answerValue: any) => {
-    if (isExamFinished) return;
-    try {
-      await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/student/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_exam_id: Number(studentExamId),
-          question_id: questionId,
-          jawaban: answerValue,
-        }),
-      });
-    } catch (err) {
-      console.error('Gagal menyimpan jawaban ke DB:', err);
-    }
-  };
-
-// 1. Fungsi Evaluasi Parsial per Item (Mengembalikan nilai 0.0 sampai 1.0)
-  const getQuestionScoreRatio = (q: any, userAns: any) => {
-    if (userAns === undefined || userAns === null) return 0;
-    let key = q.kunci_jawaban;
-    if (key === undefined || key === null) return 0;
-
-    const tipe = (q.tipe_soal || 'single').toLowerCase();
-
-    // A. Single Choice (Harus benar mutlak: 1 atau 0)
-    if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
-      if (typeof key === 'string') {
-        try {
-          const parsed = JSON.parse(key);
-          if (typeof parsed === 'string') key = parsed;
-        } catch (e) {}
-      }
-      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
-    }
-
-    // B. Multiple Choice (Parsial berdasarkan jumlah pilihan benar yang cocok)
-    if (tipe === 'multiple' || tipe === 'multiple_choice') {
-      let keyArr: string[] = [];
-      if (Array.isArray(key)) {
-        keyArr = key.map((k: any) => String(k).trim().toUpperCase());
-      } else if (typeof key === 'string') {
-        try {
-          const parsed = JSON.parse(key);
-          keyArr = Array.isArray(parsed) 
-            ? parsed.map((k: any) => String(k).trim().toUpperCase()) 
-            : key.split(',').map((k: any) => k.trim().toUpperCase());
-        } catch (e) {
-          keyArr = key.split(',').map((k: any) => k.trim().toUpperCase());
-        }
-      }
-
-      const userArr = Array.isArray(userAns) 
-        ? userAns.map((u: any) => String(u).trim().toUpperCase())
-        : [];
-
-      if (keyArr.length === 0) return 0;
-
-      // Hitung berapa banyak pilihan user yang tepat dibanding kunci
-      let correctMatches = 0;
-      let falseSelections = 0;
-
-      userArr.forEach(u => {
-        if (keyArr.includes(u)) correctMatches++;
-        else falseSelections++; // memilih yang seharusnya tidak dipilih
-      });
-
-      // Rumus proporsional: (Pilihan benar yang dipilih - kesalahan) dibagi total kunci benar
-      // Minimal skor 0, tidak boleh minus
-      const score = (correctMatches - falseSelections) / keyArr.length;
-      return score > 0 ? score : 0;
-    }
-
-    // C. True / False (Parsial berdasarkan jumlah baris pernyataan yang benar)
-    if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
-      let keyObj: { [key: string]: boolean } = {};
-      if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
-        Object.keys(key).forEach(k => {
-          const val = key[k];
-          keyObj[k.trim().toUpperCase()] = typeof val === 'boolean' ? val : (String(val).toUpperCase() === 'B' || String(val).toUpperCase() === 'BENAR' || String(val) === 'true');
-        });
-      } else if (typeof key === 'string') {
-        try {
-          const parsed = JSON.parse(key);
-          if (typeof parsed === 'object' && parsed !== null) {
-            Object.keys(parsed).forEach(k => {
-              const val = parsed[k];
-              keyObj[k.trim().toUpperCase()] = typeof val === 'boolean' ? val : (String(val).toUpperCase() === 'B' || String(val).toUpperCase() === 'BENAR' || String(val) === 'true');
-            });
-          }
-        } catch (e) {
-          const parts = key.split(',').map(v => v.trim().toUpperCase());
-          parts.forEach((p, idx) => {
-            const labelChar = String.fromCharCode(65 + idx);
-            keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
-          });
-        }
-      }
-
-      const userObj = typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns) ? userAns : {};
-      const keyKeys = Object.keys(keyObj);
-
-      if (keyKeys.length === 0) return 0;
-
-      let correctRows = 0;
-      for (const k of keyKeys) {
-        let matchedUserVal = undefined;
-        for (const uk of Object.keys(userObj)) {
-          if (uk.trim().toUpperCase() === k) {
-            matchedUserVal = Boolean(userObj[uk]);
-            break;
-          }
-        }
-        if (matchedUserVal !== undefined && matchedUserVal === keyObj[k]) {
-          correctRows++;
-        }
-      }
-
-      // Proporsi baris pernyataan yang benar dibagi total baris
-      return correctRows / keyKeys.length;
-    }
-
-    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
-  };
-
-  // 2. Helper untuk status centang hijau di modal (jika rasio >= 0.8 atau benar semua)
-  const checkIsCorrect = (q: any, userAns: any) => {
-    return getQuestionScoreRatio(q, userAns) >= 0.99;
-  };
-
-  const getCorrectKeyString = (q: any) => {
-    let key = q.kunci_jawaban;
-    if (key === undefined || key === null) return '-';
-    if (typeof key === 'string') {
-      try {
-        const parsed = JSON.parse(key);
-        if (typeof parsed === 'string') return parsed;
-        if (Array.isArray(parsed)) return parsed.join(', ');
-        if (typeof parsed === 'object' && parsed !== null) {
-          return Object.entries(parsed).map(([k, v]) => `${k}: ${v}`).join(', ');
-        }
-      } catch (e) {}
-      return key;
-    }
-    if (Array.isArray(key)) return key.join(', ');
-    if (typeof key === 'object' && key !== null) {
-      return Object.entries(key).map(([k, v]) => `${k}: ${v}`).join(', ');
-    }
-    return String(key);
-  };
-
-const handleFinishExam = async () => {
-    if (isSubmitting || isExamFinished) return;
-    setIsSubmitting(true);
-
-    try {
-      let totalEarnedScore = 0;
-      questions.forEach((q: any) => {
-        const userAns = answers[q.id];
-        const ratio = getQuestionScoreRatio(q, userAns); // Bernilai 0.0 s.d 1.0
-        totalEarnedScore += ratio;
-      });
-
-      const totalSoal = questions.length > 0 ? questions.length : 1;
-      // Konversi ke skala 100 dengan akurat
-      const calculatedScore = Math.round((totalEarnedScore / totalSoal) * 100);
-      const totalTimeSpent = (90 * 60) - timeLeft;
-
-      await fetch('https://cbt-ruangbelajar-backend.vercel.app/api/exam/finish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_exam_id: Number(studentExamId),
-          final_score: calculatedScore,
-          duration: totalTimeSpent > 0 ? totalTimeSpent : 0,
-          answers: answers,
-        }),
-      });
-
-      setIsExamFinished(true);
-      localStorage.setItem(finishedKey, 'true');
-
-      setExamResultData({
-        score: calculatedScore,
-        status: calculatedScore >= 80 ? 'Tinggi' : calculatedScore >= 60 ? 'Sedang' : 'Rendah',
-      });
-      setIsResultModalOpen(true); 
-    } catch (error: any) {
-      console.error('Error saat menyelesaikan ujian:', error);
-      setIsExamFinished(true);
-      localStorage.setItem(finishedKey, 'true');
-      setIsResultModalOpen(true);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-  
   if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
@@ -365,10 +393,16 @@ const handleFinishExam = async () => {
 
         <div className="max-w-3xl w-full bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6 md:p-8 text-slate-700 leading-relaxed text-sm md:text-base mb-8">
           <ol className="list-decimal list-inside space-y-3">
-            <li>Setiap paket soal terdiri atas <b>{questions.length} soal</b> yang wajib dikerjakan dengan cermat.</li>
+            <li>
+              Setiap paket soal terdiri atas <b>{questions.length} soal</b> yang wajib dikerjakan dengan cermat.
+            </li>
             <li>Bacalah soal dengan saksama sebelum menjawab.</li>
-            <li>Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.</li>
-            <li>Setelah selesai, klik tombol <b>Akhiri Ujian</b>.</li>
+            <li>
+              Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.
+            </li>
+            <li>
+              Setelah selesai, klik tombol <b>Akhiri Ujian</b>.
+            </li>
           </ol>
         </div>
 
@@ -440,9 +474,10 @@ const handleFinishExam = async () => {
 
   const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
     if (isExamFinished) return;
-    const prevObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
-      ? (currentAns as { [key: string]: boolean })
-      : {};
+    const prevObj =
+      typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
+        ? (currentAns as { [key: string]: boolean })
+        : {};
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
     setAnswers(updatedAnswers);
@@ -456,7 +491,11 @@ const handleFinishExam = async () => {
         <h1 className="text-lg md:text-xl font-bold text-[#327ca6] mb-1 text-center">
           Paket Ujian CBT - Ruang Belajar
         </h1>
-        <div className={`font-extrabold text-lg md:text-xl mb-4 tracking-wider ${isExamFinished ? 'text-gray-400' : 'text-red-500'}`}>
+        <div
+          className={`font-extrabold text-lg md:text-xl mb-4 tracking-wider ${
+            isExamFinished ? 'text-gray-400' : 'text-red-500'
+          }`}
+        >
           {isExamFinished ? 'Ujian Telah Selesai (Waktu Berhenti)' : formatTime(timeLeft)}
         </div>
 
@@ -515,11 +554,7 @@ const handleFinishExam = async () => {
             {currentQ.image_url && currentQ.image_url.trim() !== '' && (
               <div className="mb-6">
                 <img
-                  src={
-                    currentQ.image_url.startsWith('http')
-                      ? currentQ.image_url
-                      : `https://cbt-ruangbelajar-backend.vercel.app${currentQ.image_url}`
-                  }
+                  src={resolveAssetUrl(currentQ.image_url)}
                   alt="Gambar Soal"
                   className="max-h-72 object-contain rounded-lg border"
                 />
@@ -529,7 +564,11 @@ const handleFinishExam = async () => {
             <div className="text-base md:text-lg text-slate-800 font-medium mb-6 leading-relaxed flex items-start">
               <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
               <div className="flex-1">
-                {currentQ.teks_lanjutan || currentQ.teks_sesudah_gambar || currentQ.soal || questionText || ''}
+                {currentQ.teks_lanjutan ||
+                  currentQ.teks_sesudah_gambar ||
+                  currentQ.soal ||
+                  questionText ||
+                  ''}
               </div>
             </div>
 
@@ -538,8 +577,11 @@ const handleFinishExam = async () => {
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
                   const isSelected = currentAns === opt.label;
-                  const isCorrectKey = isExamFinished && String(opt.label).trim().toUpperCase() === String(currentQ.kunci_jawaban || '').trim().toUpperCase();
-                  
+                  const isCorrectKey =
+                    isExamFinished &&
+                    String(opt.label).trim().toUpperCase() ===
+                      String(currentQ.kunci_jawaban || '').trim().toUpperCase();
+
                   let optionStyle = 'border-slate-300 group-hover:border-slate-400 bg-white';
                   let textStyle = 'text-slate-700';
 
@@ -561,16 +603,26 @@ const handleFinishExam = async () => {
                       onClick={() => handleSingleChoice(opt.label)}
                       className={`flex items-start gap-3 cursor-pointer group py-2 px-3 rounded-xl border transition-all ${optionStyle}`}
                     >
-                      <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                        isSelected || isCorrectKey ? 'border-current' : 'border-slate-300'
-                      }`}>
+                      <div
+                        className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                          isSelected || isCorrectKey ? 'border-current' : 'border-slate-300'
+                        }`}
+                      >
                         {isSelected && <div className="w-2 h-2 rounded-full bg-current" />}
                       </div>
                       <span className={`text-sm md:text-base leading-snug ${textStyle}`}>
                         <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
-                        {isExamFinished && isCorrectKey && <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">Kunci Benar</span>}
-                        {isExamFinished && isSelected && !isCorrectKey && <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">Jawaban Anda (Salah)</span>}
+                        {isExamFinished && isCorrectKey && (
+                          <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                            Kunci Benar
+                          </span>
+                        )}
+                        {isExamFinished && isSelected && !isCorrectKey && (
+                          <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">
+                            Jawaban Anda (Salah)
+                          </span>
+                        )}
                       </span>
                     </div>
                   );
@@ -579,183 +631,247 @@ const handleFinishExam = async () => {
             )}
 
             {/* B. TIPE MULTIPLE CHOICE */}
-            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') && (() => {
-              let keyArr: string[] = [];
-              const rawKey = currentQ.kunci_jawaban;
-              if (Array.isArray(rawKey)) {
-                keyArr = rawKey.map((k: any) => String(k).trim().toUpperCase());
-              } else if (typeof rawKey === 'string') {
-                try {
-                  const parsed = JSON.parse(rawKey);
-                  keyArr = Array.isArray(parsed) ? parsed.map((k: any) => String(k).trim().toUpperCase()) : rawKey.split(',').map((k: any) => k.trim().toUpperCase());
-                } catch (e) {
-                  keyArr = rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+            {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') &&
+              (() => {
+                let keyArr: string[] = [];
+                const rawKey = currentQ.kunci_jawaban;
+                if (Array.isArray(rawKey)) {
+                  keyArr = rawKey.map((k: any) => String(k).trim().toUpperCase());
+                } else if (typeof rawKey === 'string') {
+                  try {
+                    const parsed = JSON.parse(rawKey);
+                    keyArr = Array.isArray(parsed)
+                      ? parsed.map((k: any) => String(k).trim().toUpperCase())
+                      : rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                  } catch {
+                    keyArr = rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                  }
                 }
-              }
 
-              const userList = Array.isArray(currentAns) ? currentAns.map((u: any) => String(u).trim().toUpperCase()) : [];
+                const userList = Array.isArray(currentAns)
+                  ? currentAns.map((u: any) => String(u).trim().toUpperCase())
+                  : [];
 
-              return (
-                <div className="space-y-3 pl-2">
-                  {optionsList.map((opt) => {
-                    const optLabel = String(opt.label).trim().toUpperCase();
-                    const isChecked = userList.includes(optLabel);
-                    const isCorrectOpt = keyArr.includes(optLabel);
+                return (
+                  <div className="space-y-3 pl-2">
+                    {optionsList.map((opt) => {
+                      const optLabel = String(opt.label).trim().toUpperCase();
+                      const isChecked = userList.includes(optLabel);
+                      const isCorrectOpt = keyArr.includes(optLabel);
 
-                    let optionStyle = 'border-slate-300 bg-white';
-                    let textStyle = 'text-slate-700';
+                      let optionStyle = 'border-slate-300 bg-white';
+                      let textStyle = 'text-slate-700';
 
-                    if (isExamFinished) {
-                      if (isCorrectOpt) {
-                        optionStyle = 'border-emerald-500 bg-emerald-100';
-                        textStyle = 'text-emerald-900 font-bold';
-                      } else if (isChecked && !isCorrectOpt) {
-                        optionStyle = 'border-rose-500 bg-rose-100';
-                        textStyle = 'text-rose-900 font-bold';
+                      if (isExamFinished) {
+                        if (isCorrectOpt) {
+                          optionStyle = 'border-emerald-500 bg-emerald-100';
+                          textStyle = 'text-emerald-900 font-bold';
+                        } else if (isChecked && !isCorrectOpt) {
+                          optionStyle = 'border-rose-500 bg-rose-100';
+                          textStyle = 'text-rose-900 font-bold';
+                        }
+                      } else if (isChecked) {
+                        optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
                       }
-                    } else if (isChecked) {
-                      optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
-                    }
 
-                    return (
-                      <div
-                        key={opt.label}
-                        onClick={() => handleMultipleChoice(opt.label)}
-                        className={`flex items-start gap-3 cursor-pointer group py-2.5 px-3.5 rounded-xl border transition-all ${optionStyle}`}
-                      >
-                        <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                          isChecked || (isExamFinished && isCorrectOpt) ? 'border-current bg-current text-white' : 'border-slate-300'
-                        }`}>
-                          {isChecked && (
-                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
+                      return (
+                        <div
+                          key={opt.label}
+                          onClick={() => handleMultipleChoice(opt.label)}
+                          className={`flex items-start gap-3 cursor-pointer group py-2.5 px-3.5 rounded-xl border transition-all ${optionStyle}`}
+                        >
+                          <div
+                            className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                              isChecked || (isExamFinished && isCorrectOpt)
+                                ? 'border-current bg-current text-white'
+                                : 'border-slate-300'
+                            }`}
+                          >
+                            {isChecked && (
+                              <svg
+                                className="w-3.5 h-3.5 text-white"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="3"
+                                  d="M5 13l4 4L19 7"
+                                />
+                              </svg>
+                            )}
+                          </div>
+                          <span className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
+                            <span className="font-bold mr-1.5">{opt.label}.</span>
+                            {opt.text}
+                            {isExamFinished && isCorrectOpt && (
+                              <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                                Kunci Benar
+                              </span>
+                            )}
+                            {isExamFinished && isChecked && !isCorrectOpt && (
+                              <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                                Jawaban Anda (Salah)
+                              </span>
+                            )}
+                          </span>
                         </div>
-                        <span className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
-                          <span className="font-bold mr-1.5">{opt.label}.</span>
-                          {opt.text}
-                          {isExamFinished && isCorrectOpt && (
-                            <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-semibold">Kunci Benar</span>
-                          )}
-                          {isExamFinished && isChecked && !isCorrectOpt && (
-                            <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-semibold">Jawaban Anda (Salah)</span>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
             {/* C. TIPE TRUE / FALSE */}
-            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') && (() => {
-              let keyObj: { [key: string]: any } = {};
-              const rawKey = currentQ.kunci_jawaban;
-              if (typeof rawKey === 'object' && rawKey !== null && !Array.isArray(rawKey)) {
-                keyObj = rawKey;
-              } else if (typeof rawKey === 'string') {
-                try {
-                  const parsed = JSON.parse(rawKey);
-                  if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
-                } catch (e) {
-                  const parts = rawKey.split(',').map(v => v.trim().toUpperCase());
-                  parts.forEach((p, idx) => {
-                    const labelChar = String.fromCharCode(65 + idx);
-                    keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
-                  });
+            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') &&
+              (() => {
+                let keyObj: { [key: string]: any } = {};
+                const rawKey = currentQ.kunci_jawaban;
+                if (typeof rawKey === 'object' && rawKey !== null && !Array.isArray(rawKey)) {
+                  keyObj = rawKey;
+                } else if (typeof rawKey === 'string') {
+                  try {
+                    const parsed = JSON.parse(rawKey);
+                    if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
+                  } catch {
+                    const parts = rawKey.split(',').map((v) => v.trim().toUpperCase());
+                    parts.forEach((p, idx) => {
+                      const labelChar = String.fromCharCode(65 + idx);
+                      keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
+                    });
+                  }
                 }
-              }
 
-              const userObj = typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns) ? currentAns : {};
+                const userObj =
+                  typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
+                    ? currentAns
+                    : {};
 
-              return (
-                <div className="overflow-x-auto my-4">
-                  <table className="w-full border-collapse border border-slate-200 rounded-xl overflow-hidden">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-700 text-sm border-b">
-                        <th className="p-3 border-r text-left font-bold">Pernyataan</th>
-                        <th className="p-3 w-28 text-center font-bold">Benar</th>
-                        <th className="p-3 w-28 text-center font-bold">Salah</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {optionsList.map((opt) => {
-                        const optLabel = String(opt.label).trim().toUpperCase();
-                        
-                        let correctVal = undefined;
-                        for (const k of Object.keys(keyObj)) {
-                          if (k.trim().toUpperCase() === optLabel) {
-                            let val = keyObj[k];
-                            if (typeof val === 'string') {
-                              val = val.toUpperCase() === 'B' || val.toUpperCase() === 'BENAR' || val === 'true';
+                return (
+                  <div className="overflow-x-auto my-4">
+                    <table className="w-full border-collapse border border-slate-200 rounded-xl overflow-hidden">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-700 text-sm border-b">
+                          <th className="p-3 border-r text-left font-bold">Pernyataan</th>
+                          <th className="p-3 w-28 text-center font-bold">Benar</th>
+                          <th className="p-3 w-28 text-center font-bold">Salah</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {optionsList.map((opt) => {
+                          const optLabel = String(opt.label).trim().toUpperCase();
+
+                          let correctVal: boolean | undefined = undefined;
+                          for (const k of Object.keys(keyObj)) {
+                            if (k.trim().toUpperCase() === optLabel) {
+                              let val = keyObj[k];
+                              if (typeof val === 'string') {
+                                val =
+                                  val.toUpperCase() === 'B' ||
+                                  val.toUpperCase() === 'BENAR' ||
+                                  val === 'true';
+                              }
+                              correctVal = Boolean(val);
+                              break;
                             }
-                            correctVal = Boolean(val);
-                            break;
                           }
-                        }
 
-                        let userVal = undefined;
-                        for (const uk of Object.keys(userObj)) {
-                          if (uk.trim().toUpperCase() === optLabel) {
-                            userVal = Boolean(userObj[uk]);
-                            break;
+                          let userVal: boolean | undefined = undefined;
+                          for (const uk of Object.keys(userObj)) {
+                            if (uk.trim().toUpperCase() === optLabel) {
+                              userVal = Boolean(userObj[uk]);
+                              break;
+                            }
                           }
-                        }
 
-                        const isRowCorrect = userVal !== undefined && userVal === correctVal;
+                          const isRowCorrect = userVal !== undefined && userVal === correctVal;
 
-                        return (
-                          <tr key={opt.label} className="border-b hover:bg-slate-50/50">
-                            <td className="p-3 border-r text-sm text-slate-700">
-                              <span className="font-bold mr-1.5">{opt.label}.</span>
-                              {opt.text}
-                              {isExamFinished && (
-                                <div className="text-xs mt-1">
-                                  <span className="text-emerald-700 font-semibold">Kunci: {correctVal === true ? 'Benar' : 'Salah'}</span>
-                                  {userVal !== undefined && (
-                                    <span className={`ml-2 px-1.5 py-0.5 rounded font-bold ${isRowCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                                      {isRowCorrect ? '✓ Sesuai (Benar)' : '✗ Tidak Sesuai (Salah)'}
+                          return (
+                            <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                              <td className="p-3 border-r text-sm text-slate-700">
+                                <span className="font-bold mr-1.5">{opt.label}.</span>
+                                {opt.text}
+                                {isExamFinished && (
+                                  <div className="text-xs mt-1">
+                                    <span className="text-emerald-700 font-semibold">
+                                      Kunci: {correctVal === true ? 'Benar' : 'Salah'}
                                     </span>
+                                    {userVal !== undefined && (
+                                      <span
+                                        className={`ml-2 px-1.5 py-0.5 rounded font-bold ${
+                                          isRowCorrect
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : 'bg-rose-100 text-rose-800'
+                                        }`}
+                                      >
+                                        {isRowCorrect
+                                          ? '✓ Sesuai (Benar)'
+                                          : '✗ Tidak Sesuai (Salah)'}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td
+                                className={`p-3 text-center ${
+                                  isExamFinished && correctVal === true ? 'bg-emerald-50' : ''
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleTrueFalse(opt.label, true)}
+                                  className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                                    userVal === true
+                                      ? isExamFinished
+                                        ? correctVal === true
+                                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                                          : 'border-rose-600 bg-rose-600 text-white'
+                                        : 'border-[#327ca6] bg-[#327ca6]'
+                                      : isExamFinished && correctVal === true
+                                      ? 'border-emerald-500 bg-emerald-100'
+                                      : 'border-slate-300 bg-white'
+                                  }`}
+                                >
+                                  {userVal === true && (
+                                    <div className="w-2.5 h-2.5 rounded-full bg-white" />
                                   )}
-                                </div>
-                              )}
-                            </td>
-                            <td className={`p-3 text-center ${isExamFinished && correctVal === true ? 'bg-emerald-50' : ''}`}>
-                              <button
-                                type="button"
-                                onClick={() => handleTrueFalse(opt.label, true)}
-                                className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
-                                  userVal === true 
-                                    ? (isExamFinished ? (correctVal === true ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-rose-600 bg-rose-600 text-white') : 'border-[#327ca6] bg-[#327ca6]')
-                                    : (isExamFinished && correctVal === true ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
+                                </button>
+                              </td>
+                              <td
+                                className={`p-3 text-center ${
+                                  isExamFinished && correctVal === false ? 'bg-emerald-50' : ''
                                 }`}
                               >
-                                {userVal === true && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                              </button>
-                            </td>
-                            <td className={`p-3 text-center ${isExamFinished && correctVal === false ? 'bg-emerald-50' : ''}`}>
-                              <button
-                                type="button"
-                                onClick={() => handleTrueFalse(opt.label, false)}
-                                className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
-                                  userVal === false 
-                                    ? (isExamFinished ? (correctVal === false ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-rose-600 bg-rose-600 text-white') : 'border-[#327ca6] bg-[#327ca6]')
-                                    : (isExamFinished && correctVal === false ? 'border-emerald-500 bg-emerald-100' : 'border-slate-300 bg-white')
-                                }`}
-                              >
-                                {userVal === false && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
+                                <button
+                                  type="button"
+                                  onClick={() => handleTrueFalse(opt.label, false)}
+                                  className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
+                                    userVal === false
+                                      ? isExamFinished
+                                        ? correctVal === false
+                                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                                          : 'border-rose-600 bg-rose-600 text-white'
+                                        : 'border-[#327ca6] bg-[#327ca6]'
+                                      : isExamFinished && correctVal === false
+                                      ? 'border-emerald-500 bg-emerald-100'
+                                      : 'border-slate-300 bg-white'
+                                  }`}
+                                >
+                                  {userVal === false && (
+                                    <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
 
             {isExamFinished && (
               <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm">
@@ -807,7 +923,12 @@ const handleFinishExam = async () => {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowQuestionModal(false)} className="mt-4 px-5 py-2 bg-slate-100 rounded-full text-sm">Tutup</button>
+            <button
+              onClick={() => setShowQuestionModal(false)}
+              className="mt-4 px-5 py-2 bg-slate-100 rounded-full text-sm"
+            >
+              Tutup
+            </button>
           </div>
         </div>
       )}
@@ -833,7 +954,6 @@ const handleFinishExam = async () => {
       {isResultModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100 animate-in fade-in zoom-in duration-200">
-            
             <div className="text-center mb-6">
               <h1 className="text-xl md:text-2xl font-bold text-gray-700 tracking-wide mb-1">
                 Paket Ujian CBT - Ruang Belajar
@@ -865,13 +985,29 @@ const handleFinishExam = async () => {
                   </h2>
                 </div>
                 <div className="p-4 md:p-6 text-center space-y-2.5 font-semibold text-sm md:text-base flex flex-col justify-center h-full">
-                  <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 80 ? 'bg-emerald-100 ring-2 ring-emerald-500 font-bold' : 'opacity-50'}`}>
+                  <div
+                    className={`p-2 rounded-xl transition-all ${
+                      examResultData.score >= 80
+                        ? 'bg-emerald-100 ring-2 ring-emerald-500 font-bold'
+                        : 'opacity-50'
+                    }`}
+                  >
                     <span className="text-emerald-600">80 - 100 = Tinggi</span>
                   </div>
-                  <div className={`p-2 rounded-xl transition-all ${examResultData.score >= 60 && examResultData.score < 80 ? 'bg-amber-100 ring-2 ring-amber-500 font-bold' : 'opacity-50'}`}>
+                  <div
+                    className={`p-2 rounded-xl transition-all ${
+                      examResultData.score >= 60 && examResultData.score < 80
+                        ? 'bg-amber-100 ring-2 ring-amber-500 font-bold'
+                        : 'opacity-50'
+                    }`}
+                  >
                     <span className="text-amber-600">60 - 79 = Sedang</span>
                   </div>
-                  <div className={`p-2 rounded-xl transition-all ${examResultData.score < 60 ? 'bg-rose-100 ring-2 ring-rose-500 font-bold' : 'opacity-50'}`}>
+                  <div
+                    className={`p-2 rounded-xl transition-all ${
+                      examResultData.score < 60 ? 'bg-rose-100 ring-2 ring-rose-500 font-bold' : 'opacity-50'
+                    }`}
+                  >
                     <span className="text-rose-600">0 - 59 = Rendah</span>
                   </div>
                 </div>
@@ -912,7 +1048,6 @@ const handleFinishExam = async () => {
                 Kembali
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -920,19 +1055,25 @@ const handleFinishExam = async () => {
       {showDiscussionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 md:p-8 text-center animate-in fade-in zoom-in duration-200">
-            
             <button
               type="button"
               onClick={() => setShowDiscussionModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
 
             <h3 className="text-gray-700 font-bold text-lg mb-1">Pembahasan Daftar Nomor Soal</h3>
-            <p className="text-xs text-gray-500 mb-4">Klik nomor merah atau hijau untuk melihat detail soal & kunci jawaban</p>
+            <p className="text-xs text-gray-500 mb-4">
+              Klik nomor merah atau hijau untuk melihat detail soal & kunci jawaban
+            </p>
 
             <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
               {questions.map((q, idx) => {
@@ -996,11 +1137,9 @@ const handleFinishExam = async () => {
             >
               Tutup
             </button>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }
