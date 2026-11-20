@@ -9,8 +9,8 @@ const BACKEND_URL =
 
 type JenjangType = 'SD' | 'SMP' | 'SMA/SMK';
 
-function normalizeJenjang(raw?: any): JenjangType {
-  if (!raw) return 'SD';
+function normalizeJenjang(raw?: any): JenjangType | null {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
   const upper = String(raw).trim().toUpperCase();
   if (upper.includes('SMA') || upper.includes('SMK') || upper.includes('MA')) {
     return 'SMA/SMK';
@@ -18,7 +18,61 @@ function normalizeJenjang(raw?: any): JenjangType {
   if (upper.includes('SMP') || upper.includes('MTS')) {
     return 'SMP';
   }
-  return 'SD';
+  if (upper.includes('SD') || upper.includes('MI')) {
+    return 'SD';
+  }
+  return null;
+}
+
+function extractDurationSeconds(row: any): number {
+  if (!row || typeof row !== 'object') return 0;
+
+  const directCandidates = [
+    row.duration,
+    row.total_duration,
+    row.durasi,
+    row.waktu_pengerjaan,
+    row.duration_seconds,
+    row.elapsed_time,
+    row.time_spent,
+  ];
+
+  for (const val of directCandidates) {
+    if (val !== undefined && val !== null && val !== '') {
+      const num = Number(val);
+      if (!Number.isNaN(num) && num > 0) {
+        return Math.round(num);
+      }
+    }
+  }
+
+  const minuteCandidates = [
+    row.duration_minutes,
+    row.total_menit,
+    row.menit,
+  ];
+  for (const val of minuteCandidates) {
+    if (val !== undefined && val !== null && val !== '') {
+      const num = Number(val);
+      if (!Number.isNaN(num) && num > 0) {
+        return Math.round(num * 60);
+      }
+    }
+  }
+
+  return 0;
+}
+
+function extractScore(row: any): number {
+  if (!row || typeof row !== 'object') return 0;
+  const candidates = [row.score, row.total_score, row.final_score, row.nilai];
+  for (const val of candidates) {
+    if (val !== undefined && val !== null && val !== '') {
+      const num = Number(val);
+      if (!Number.isNaN(num)) return num;
+    }
+  }
+  return 0;
 }
 
 function classifyFromScore(score: number, existingLabel?: any): string {
@@ -30,32 +84,36 @@ function classifyFromScore(score: number, existingLabel?: any): string {
   return 'Rendah';
 }
 
-function formatLeaderboardRows(rows: any[], targetJenjang: JenjangType) {
+function formatLeaderboardRows(rows: any[], targetJenjang: JenjangType, hasJenjang: boolean) {
   const byUser = new Map<string, any>();
 
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
 
-    const rowJenjang = normalizeJenjang(
+    const detectedJenjang = normalizeJenjang(
       row.jenjang || row.jenjang_pendidikan || row.level || row.tingkat_jenjang
     );
-    if (rowJenjang !== targetJenjang) continue;
+
+    // Jika parameter jenjang diminta, hanya lewati jika item punya jenjang eksplisit yang berbeda
+    if (hasJenjang && detectedJenjang && detectedJenjang !== targetJenjang) {
+      continue;
+    }
 
     const uid = String(row.user_id ?? row.id ?? row.student_id ?? '');
     if (!uid) continue;
 
-    const score = Number(row.score ?? row.total_score ?? row.final_score ?? 0) || 0;
-    const duration =
-      Number(row.duration ?? row.total_duration ?? row.waktu_pengerjaan ?? row.durasi ?? 0) || 0;
+    const score = extractScore(row);
+    const duration = extractDurationSeconds(row);
     const examCount = Number(row.total_ujian_dikerjakan ?? 1) || 1;
     const label = classifyFromScore(score, row.klasifikasi || row.status_bayes);
+    const finalJenjang: JenjangType = detectedJenjang || targetJenjang;
 
     if (!byUser.has(uid)) {
       byUser.set(uid, {
         ...row,
         user_id: row.user_id ?? uid,
-        nama_siswa: String(row.nama_siswa || row.nama || row.name || `Siswa #${uid}`),
-        jenjang: rowJenjang,
+        nama_siswa: String(row.nama_siswa || row.nama || row.name || `Siswa #${uid}`).trim(),
+        jenjang: finalJenjang,
         total_ujian_dikerjakan: examCount,
         status_bayes: label,
         klasifikasi: label,
@@ -77,7 +135,7 @@ function formatLeaderboardRows(rows: any[], targetJenjang: JenjangType) {
         ...row,
         user_id: prev.user_id,
         nama_siswa: prev.nama_siswa,
-        jenjang: rowJenjang,
+        jenjang: finalJenjang,
         total_ujian_dikerjakan: nextCount,
         status_bayes: nextLabel,
         klasifikasi: nextLabel,
@@ -98,7 +156,7 @@ export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
     const hasJenjang = Boolean(sp.get('jenjang'));
-    const targetJenjang = normalizeJenjang(sp.get('jenjang'));
+    const targetJenjang: JenjangType = normalizeJenjang(sp.get('jenjang')) || 'SD';
     const userId = sp.get('user_id') || '';
 
     const searchParams = sp.toString();
@@ -130,13 +188,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(data, { status: response.status });
     }
 
-    const processed = hasJenjang
-      ? formatLeaderboardRows(rawList, targetJenjang)
-      : [...rawList].sort((a, b) => {
-          const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-          if (scoreDiff !== 0) return scoreDiff;
-          return Number(a.duration || 0) - Number(b.duration || 0);
-        });
+    const processed = formatLeaderboardRows(rawList, targetJenjang, hasJenjang);
 
     let computedUserRank = data.userRank || null;
     if (userId) {
@@ -156,7 +208,7 @@ export async function GET(request: NextRequest) {
         jenjang: hasJenjang ? targetJenjang : data.jenjang,
         leaderboard: processed.slice(0, 10),
         userRank: computedUserRank,
-        totalSiswa: Number(data.totalSiswa) || processed.length,
+        totalSiswa: processed.length || Number(data.totalSiswa) || 0,
       },
       { status: response.status }
     );
