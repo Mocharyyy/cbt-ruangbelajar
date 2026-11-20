@@ -87,10 +87,10 @@ function ExamContent() {
     }
   }, []);
 
-  // Selalu mulai sesi baru dengan kondisi belum selesai agar tidak muncul hasil/kunci di awal
   useEffect(() => {
     setIsExamFinished(false);
     setIsResultModalOpen(false);
+    setAnswers({});
     setExamResultData({
       score: 0,
       status: 'Rendah',
@@ -526,9 +526,14 @@ function ExamContent() {
 
   const handleMultipleChoice = (label: string) => {
     if (isExamFinished) return;
-    const list = Array.isArray(currentAns) ? currentAns : [];
-    const isChecked = list.includes(label);
-    const next = isChecked ? list.filter((a: string) => a !== label) : [...list, label];
+    const normalizedLabel = String(label).trim().toUpperCase();
+    const list = Array.isArray(currentAns)
+      ? currentAns.map((a: any) => String(a).trim().toUpperCase())
+      : [];
+    const isChecked = list.includes(normalizedLabel);
+    const next = isChecked
+      ? list.filter((a: string) => a !== normalizedLabel)
+      : [...list, normalizedLabel];
     const updatedAnswers = { ...answers, [currentQ.id]: next };
     setAnswers(updatedAnswers);
     localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
@@ -649,16 +654,19 @@ function ExamContent() {
               </div>
             )}
 
+            {/* A. TIPE SINGLE CHOICE */}
             {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
-                  const isSelected = currentAns === opt.label;
+                  const isSelected =
+                    String(currentAns || '').trim().toUpperCase() ===
+                    String(opt.label).trim().toUpperCase();
                   const isCorrectKey =
                     isExamFinished &&
                     String(opt.label).trim().toUpperCase() ===
                       String(currentQ.kunci_jawaban || '').trim().toUpperCase();
 
-                  let optionStyle = 'border-slate-300 group-hover:border-slate-400 bg-white';
+                  let optionStyle = 'border-slate-300 hover:border-slate-400 bg-white';
                   let textStyle = 'text-slate-700';
 
                   if (isExamFinished) {
@@ -670,7 +678,8 @@ function ExamContent() {
                       textStyle = 'text-rose-900 font-bold';
                     }
                   } else if (isSelected) {
-                    optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
+                    optionStyle = 'border-slate-500 bg-slate-100';
+                    textStyle = 'text-slate-900 font-semibold';
                   }
 
                   return (
@@ -681,10 +690,10 @@ function ExamContent() {
                     >
                       <div
                         className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                          isSelected || isCorrectKey ? 'border-current' : 'border-slate-300'
+                          isSelected || isCorrectKey ? 'border-slate-700' : 'border-slate-300'
                         }`}
                       >
-                        {isSelected && <div className="w-2 h-2 rounded-full bg-current" />}
+                        {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />}
                       </div>
                       <div className={`text-sm md:text-base leading-snug ${textStyle}`}>
                         <span className="font-bold mr-1.5">{opt.label}.</span>
@@ -713,6 +722,7 @@ function ExamContent() {
               </div>
             )}
 
+            {/* B. TIPE MULTIPLE CHOICE */}
             {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') &&
               (() => {
                 let keyArr: string[] = [];
@@ -741,7 +751,7 @@ function ExamContent() {
                       const isChecked = userList.includes(optLabel);
                       const isCorrectOpt = isExamFinished && keyArr.includes(optLabel);
 
-                      let optionStyle = 'border-slate-300 bg-white';
+                      let optionStyle = 'border-slate-300 hover:border-slate-400 bg-white';
                       let textStyle = 'text-slate-700';
 
                       if (isExamFinished) {
@@ -753,7 +763,8 @@ function ExamContent() {
                           textStyle = 'text-rose-900 font-bold';
                         }
                       } else if (isChecked) {
-                        optionStyle = 'border-[#327ca6] bg-[#327ca6] text-white';
+                        optionStyle = 'border-slate-500 bg-slate-100';
+                        textStyle = 'text-slate-900 font-semibold';
                       }
 
                       return (
@@ -764,9 +775,9 @@ function ExamContent() {
                         >
                           <div
                             className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                              isChecked || isCorrectOpt
-                                ? 'border-current bg-current text-white'
-                                : 'border-slate-300'
+                              isChecked
+                                ? 'border-slate-700 bg-slate-700 text-white'
+                                : 'border-slate-300 bg-white'
                             }`}
                           >
                             {isChecked && (
@@ -813,6 +824,7 @@ function ExamContent() {
                 );
               })()}
 
+            {/* C. TIPE TRUE / FALSE */}
             {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') &&
               (() => {
                 let keyObj: { [key: string]: any } = {};
@@ -916,7 +928,7 @@ function ExamContent() {
                                         ? correctVal === true
                                           ? 'border-emerald-600 bg-emerald-600 text-white'
                                           : 'border-rose-600 bg-rose-600 text-white'
-                                        : 'border-[#327ca6] bg-[#327ca6]'
+                                        : 'border-slate-700 bg-slate-700'
                                       : isExamFinished && correctVal === true
                                       ? 'border-emerald-500 bg-emerald-100'
                                       : 'border-slate-300 bg-white'
@@ -941,7 +953,7 @@ function ExamContent() {
                                         ? correctVal === false
                                           ? 'border-emerald-600 bg-emerald-600 text-white'
                                           : 'border-rose-600 bg-rose-600 text-white'
-                                        : 'border-[#327ca6] bg-[#327ca6]'
+                                        : 'border-slate-700 bg-slate-700'
                                       : isExamFinished && correctVal === false
                                       ? 'border-emerald-500 bg-emerald-100'
                                       : 'border-slate-300 bg-white'
