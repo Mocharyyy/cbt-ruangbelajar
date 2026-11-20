@@ -3,17 +3,18 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  'http://139.190.107.150:5000'
-).replace(/\/+$/, '');
-
 function resolveAssetUrl(url: string): string {
   if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const normalizedPath = url.startsWith('/') ? url : `/${url}`;
-  return `${API_BASE_URL}${normalizedPath}`;
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:image/') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function ExamContent() {
@@ -47,6 +48,25 @@ function ExamContent() {
     status: 'Rendah',
   });
 
+  // Helper terpadu untuk start-exam, answer, dan finish
+  const callExamLifecycleApi = async (
+    action: 'start' | 'answer' | 'finish',
+    payload: Record<string, any>
+  ) => {
+    const res = await fetch('/api/student/exam', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload }),
+      cache: 'no-store',
+    });
+    const rawText = await res.text();
+    try {
+      return rawText ? JSON.parse(rawText) : {};
+    } catch {
+      return { success: false, message: 'Respons server tidak valid' };
+    }
+  };
+
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
@@ -63,22 +83,23 @@ function ExamContent() {
     }
   }, []);
 
+  // 1. START EXAM
   useEffect(() => {
-    if (currentUserId === 'guest' || urlStudentExamId) {
-      if (urlStudentExamId) setStudentExamId(urlStudentExamId);
+    if (urlStudentExamId) {
+      setStudentExamId(urlStudentExamId);
       setIsInitializing(false);
       return;
     }
 
-    fetch(`${API_BASE_URL}/api/student/start-exam`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: Number(currentUserId),
-        exam_id: Number(examId),
-      }),
+    if (currentUserId === 'guest') {
+      setIsInitializing(false);
+      return;
+    }
+
+    callExamLifecycleApi('start', {
+      user_id: Number(currentUserId),
+      exam_id: Number(examId),
     })
-      .then((res) => res.json())
       .then((data) => {
         if (data.success && data.student_exam_id) {
           setStudentExamId(String(data.student_exam_id));
@@ -88,10 +109,11 @@ function ExamContent() {
             setStudentExamId(String(data.student_exam_id));
           }
         }
-        setIsInitializing(false);
       })
       .catch((err) => {
         console.error('Gagal memulai sesi ujian:', err);
+      })
+      .finally(() => {
         setIsInitializing(false);
       });
   }, [currentUserId, examId, urlStudentExamId]);
@@ -121,10 +143,14 @@ function ExamContent() {
     }
   }, [isInitializing, finishedKey, answersKey, timerKey]);
 
+  // Ambil daftar soal lewat Next.js API Route (/api/questions)
   useEffect(() => {
     if (!examId) return;
 
-    fetch(`${API_BASE_URL}/api/exams/${examId}/questions`)
+    setLoading(true);
+    fetch(`/api/questions?exam_id=${encodeURIComponent(examId)}`, {
+      cache: 'no-store',
+    })
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -133,11 +159,15 @@ function ExamContent() {
           setQuestions(data.questions);
         } else if (Array.isArray(data)) {
           setQuestions(data);
+        } else {
+          setQuestions([]);
         }
-        setLoading(false);
       })
       .catch((err) => {
-        console.error('Error fetching exam:', err);
+        console.error('Error fetching exam questions:', err);
+        setQuestions([]);
+      })
+      .finally(() => {
         setLoading(false);
       });
   }, [examId]);
@@ -149,24 +179,20 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
+  // 2. ANSWER
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
-    if (isExamFinished) return;
+    if (isExamFinished || currentUserId === 'guest') return;
     try {
-      await fetch(`${API_BASE_URL}/api/student/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_exam_id: Number(studentExamId),
-          question_id: questionId,
-          jawaban: answerValue,
-        }),
+      await callExamLifecycleApi('answer', {
+        student_exam_id: Number(studentExamId),
+        question_id: questionId,
+        jawaban: answerValue,
       });
     } catch (err) {
       console.error('Gagal menyimpan jawaban ke DB:', err);
     }
   };
 
-  // 1. Fungsi Evaluasi Parsial per Item (Mengembalikan nilai 0.0 sampai 1.0)
   const getQuestionScoreRatio = (q: any, userAns: any) => {
     if (userAns === undefined || userAns === null) return 0;
     let key = q.kunci_jawaban;
@@ -174,7 +200,6 @@ function ExamContent() {
 
     const tipe = (q.tipe_soal || 'single').toLowerCase();
 
-    // A. Single Choice (Harus benar mutlak: 1 atau 0)
     if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
       if (typeof key === 'string') {
         try {
@@ -185,7 +210,6 @@ function ExamContent() {
       return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
     }
 
-    // B. Multiple Choice (Parsial berdasarkan jumlah pilihan benar yang cocok)
     if (tipe === 'multiple' || tipe === 'multiple_choice') {
       let keyArr: string[] = [];
       if (Array.isArray(key)) {
@@ -219,7 +243,6 @@ function ExamContent() {
       return score > 0 ? score : 0;
     }
 
-    // C. True / False (Parsial berdasarkan jumlah baris pernyataan yang benar)
     if (tipe === 'true_false' || tipe === 'tf' || tipe === 'kategori') {
       const keyObj: { [key: string]: boolean } = {};
       if (typeof key === 'object' && key !== null && !Array.isArray(key)) {
@@ -281,7 +304,6 @@ function ExamContent() {
     return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
   };
 
-  // 2. Helper untuk status centang hijau di modal
   const checkIsCorrect = (q: any, userAns: any) => {
     return getQuestionScoreRatio(q, userAns) >= 0.99;
   };
@@ -311,6 +333,7 @@ function ExamContent() {
     return String(key);
   };
 
+  // 3. FINISH EXAM
   const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
@@ -327,16 +350,14 @@ function ExamContent() {
       const calculatedScore = Math.round((totalEarnedScore / totalSoal) * 100);
       const totalTimeSpent = 90 * 60 - timeLeft;
 
-      await fetch(`${API_BASE_URL}/api/exam/finish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      if (currentUserId !== 'guest') {
+        await callExamLifecycleApi('finish', {
           student_exam_id: Number(studentExamId),
           final_score: calculatedScore,
           duration: totalTimeSpent > 0 ? totalTimeSpent : 0,
           answers: answers,
-        }),
-      });
+        });
+      }
 
       setIsExamFinished(true);
       localStorage.setItem(finishedKey, 'true');
@@ -446,12 +467,16 @@ function ExamContent() {
   const questionText = currentQ.soal || '';
 
   const optionsList = [
-    { label: 'A', text: currentQ.opsi_a },
-    { label: 'B', text: currentQ.opsi_b },
-    { label: 'C', text: currentQ.opsi_c },
-    { label: 'D', text: currentQ.opsi_d },
-    { label: 'E', text: currentQ.opsi_e },
-  ].filter((opt) => opt.text && String(opt.text).trim() !== '');
+    { label: 'A', text: currentQ.opsi_a, img: currentQ.opsi_a_img },
+    { label: 'B', text: currentQ.opsi_b, img: currentQ.opsi_b_img },
+    { label: 'C', text: currentQ.opsi_c, img: currentQ.opsi_c_img },
+    { label: 'D', text: currentQ.opsi_d, img: currentQ.opsi_d_img },
+    { label: 'E', text: currentQ.opsi_e, img: currentQ.opsi_e_img },
+  ].filter(
+    (opt) =>
+      (opt.text && String(opt.text).trim() !== '') ||
+      (opt.img && String(opt.img).trim() !== '')
+  );
 
   const handleSingleChoice = (label: string) => {
     if (isExamFinished) return;
@@ -551,8 +576,13 @@ function ExamContent() {
               </div>
             )}
 
-            {currentQ.image_url && currentQ.image_url.trim() !== '' && (
-              <div className="mb-6">
+            <div className="text-base md:text-lg text-slate-800 font-medium mb-4 leading-relaxed flex items-start whitespace-pre-wrap">
+              <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
+              <div className="flex-1">{currentQ.soal || questionText || ''}</div>
+            </div>
+
+            {currentQ.image_url && String(currentQ.image_url).trim() !== '' && (
+              <div className="mb-4 pl-6">
                 <img
                   src={resolveAssetUrl(currentQ.image_url)}
                   alt="Gambar Soal"
@@ -561,16 +591,11 @@ function ExamContent() {
               </div>
             )}
 
-            <div className="text-base md:text-lg text-slate-800 font-medium mb-6 leading-relaxed flex items-start">
-              <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
-              <div className="flex-1">
-                {currentQ.teks_lanjutan ||
-                  currentQ.teks_sesudah_gambar ||
-                  currentQ.soal ||
-                  questionText ||
-                  ''}
+            {(currentQ.teks_sesudah_gambar || currentQ.teks_lanjutan) && (
+              <div className="text-sm md:text-base text-slate-700 mb-6 pl-6 whitespace-pre-wrap leading-relaxed">
+                {currentQ.teks_sesudah_gambar || currentQ.teks_lanjutan}
               </div>
-            </div>
+            )}
 
             {/* A. TIPE SINGLE CHOICE */}
             {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
@@ -610,9 +635,16 @@ function ExamContent() {
                       >
                         {isSelected && <div className="w-2 h-2 rounded-full bg-current" />}
                       </div>
-                      <span className={`text-sm md:text-base leading-snug ${textStyle}`}>
+                      <div className={`text-sm md:text-base leading-snug ${textStyle}`}>
                         <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
+                        {opt.img && String(opt.img).trim() !== '' && (
+                          <img
+                            src={resolveAssetUrl(opt.img)}
+                            alt={`Opsi ${opt.label}`}
+                            className="h-16 mt-2 rounded border object-contain bg-white"
+                          />
+                        )}
                         {isExamFinished && isCorrectKey && (
                           <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">
                             Kunci Benar
@@ -623,7 +655,7 @@ function ExamContent() {
                             Jawaban Anda (Salah)
                           </span>
                         )}
-                      </span>
+                      </div>
                     </div>
                   );
                 })}
@@ -703,9 +735,16 @@ function ExamContent() {
                               </svg>
                             )}
                           </div>
-                          <span className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
+                          <div className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
                             <span className="font-bold mr-1.5">{opt.label}.</span>
                             {opt.text}
+                            {opt.img && String(opt.img).trim() !== '' && (
+                              <img
+                                src={resolveAssetUrl(opt.img)}
+                                alt={`Opsi ${opt.label}`}
+                                className="h-16 mt-2 rounded border object-contain bg-white"
+                              />
+                            )}
                             {isExamFinished && isCorrectOpt && (
                               <span className="ml-2 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-semibold">
                                 Kunci Benar
@@ -716,7 +755,7 @@ function ExamContent() {
                                 Jawaban Anda (Salah)
                               </span>
                             )}
-                          </span>
+                          </div>
                         </div>
                       );
                     })}
