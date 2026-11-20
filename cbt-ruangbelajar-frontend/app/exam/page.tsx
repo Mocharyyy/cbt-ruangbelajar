@@ -87,6 +87,7 @@ function ExamContent() {
     }
   }, []);
 
+  // Selalu mulai bersih tanpa centang/penanda bawaan sebelum siswa klik
   useEffect(() => {
     setIsExamFinished(false);
     setIsResultModalOpen(false);
@@ -131,26 +132,18 @@ function ExamContent() {
 
   const activeSessionId = studentExamId || 'pending';
   const timerKey = `cbt_timer_${currentUserId}_${examId}_${activeSessionId}`;
-  const answersKey = `cbt_answers_${currentUserId}_${examId}_${activeSessionId}`;
   const scoreKey = `cbt_score_${currentUserId}_${examId}_${activeSessionId}`;
 
   useEffect(() => {
     if (isInitializing || !studentExamId || isExamFinished) return;
 
     if (typeof window !== 'undefined') {
-      const savedAns = localStorage.getItem(answersKey);
-      if (savedAns) {
-        try {
-          setAnswers(JSON.parse(savedAns));
-        } catch {}
-      }
-
       const savedTime = localStorage.getItem(timerKey);
       if (savedTime !== null && !Number.isNaN(Number(savedTime)) && Number(savedTime) > 0) {
         setTimeLeft(Number(savedTime));
       }
     }
-  }, [isInitializing, studentExamId, isExamFinished, answersKey, timerKey]);
+  }, [isInitializing, studentExamId, isExamFinished, timerKey]);
 
   useEffect(() => {
     if (!examId) return;
@@ -516,14 +509,15 @@ function ExamContent() {
       (opt.img && String(opt.img).trim() !== '')
   );
 
+  // Hanya simpan pilihan ketika siswa mengeklik opsi
   const handleSingleChoice = (label: string) => {
     if (isExamFinished) return;
     const updatedAnswers = { ...answers, [currentQ.id]: label };
     setAnswers(updatedAnswers);
-    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, label);
   };
 
+  // Hanya toggle centang ketika siswa mengeklik opsi
   const handleMultipleChoice = (label: string) => {
     if (isExamFinished) return;
     const normalizedLabel = String(label).trim().toUpperCase();
@@ -536,10 +530,10 @@ function ExamContent() {
       : [...list, normalizedLabel];
     const updatedAnswers = { ...answers, [currentQ.id]: next };
     setAnswers(updatedAnswers);
-    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, next);
   };
 
+  // Hanya set Benar/Salah ketika siswa mengeklik tombol
   const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
     if (isExamFinished) return;
     const prevObj =
@@ -549,7 +543,6 @@ function ExamContent() {
     const nextObj = { ...prevObj, [optLabel]: isTrue };
     const updatedAnswers = { ...answers, [currentQ.id]: nextObj };
     setAnswers(updatedAnswers);
-    localStorage.setItem(answersKey, JSON.stringify(updatedAnswers));
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
@@ -659,21 +652,29 @@ function ExamContent() {
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
                   const isSelected =
-                    String(currentAns || '').trim().toUpperCase() ===
-                    String(opt.label).trim().toUpperCase();
+                    !isExamFinished &&
+                    currentAns !== undefined &&
+                    String(currentAns).trim().toUpperCase() ===
+                      String(opt.label).trim().toUpperCase();
                   const isCorrectKey =
                     isExamFinished &&
                     String(opt.label).trim().toUpperCase() ===
                       String(currentQ.kunci_jawaban || '').trim().toUpperCase();
+                  const isWrongUserPick =
+                    isExamFinished &&
+                    currentAns !== undefined &&
+                    String(currentAns).trim().toUpperCase() ===
+                      String(opt.label).trim().toUpperCase() &&
+                    !isCorrectKey;
 
-                  let optionStyle = 'border-slate-300 hover:border-slate-400 bg-white';
+                  let optionStyle = 'border-slate-300 bg-white';
                   let textStyle = 'text-slate-700';
 
                   if (isExamFinished) {
                     if (isCorrectKey) {
                       optionStyle = 'border-emerald-500 bg-emerald-100';
                       textStyle = 'text-emerald-900 font-bold';
-                    } else if (isSelected && !isCorrectKey) {
+                    } else if (isWrongUserPick) {
                       optionStyle = 'border-rose-500 bg-rose-100';
                       textStyle = 'text-rose-900 font-bold';
                     }
@@ -686,11 +687,11 @@ function ExamContent() {
                     <div
                       key={opt.label}
                       onClick={() => handleSingleChoice(opt.label)}
-                      className={`flex items-start gap-3 cursor-pointer group py-2 px-3 rounded-xl border transition-all ${optionStyle}`}
+                      className={`flex items-start gap-3 cursor-pointer py-2 px-3 rounded-xl border transition-all ${optionStyle}`}
                     >
                       <div
                         className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                          isSelected || isCorrectKey ? 'border-slate-700' : 'border-slate-300'
+                          isSelected ? 'border-slate-700' : 'border-slate-300 bg-white'
                         }`}
                       >
                         {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />}
@@ -710,7 +711,7 @@ function ExamContent() {
                             Kunci Benar
                           </span>
                         )}
-                        {isExamFinished && isSelected && !isCorrectKey && (
+                        {isExamFinished && isWrongUserPick && (
                           <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">
                             Jawaban Anda (Salah)
                           </span>
@@ -750,15 +751,16 @@ function ExamContent() {
                       const optLabel = String(opt.label).trim().toUpperCase();
                       const isChecked = userList.includes(optLabel);
                       const isCorrectOpt = isExamFinished && keyArr.includes(optLabel);
+                      const isWrongUserPick = isExamFinished && isChecked && !isCorrectOpt;
 
-                      let optionStyle = 'border-slate-300 hover:border-slate-400 bg-white';
+                      let optionStyle = 'border-slate-300 bg-white';
                       let textStyle = 'text-slate-700';
 
                       if (isExamFinished) {
                         if (isCorrectOpt) {
                           optionStyle = 'border-emerald-500 bg-emerald-100';
                           textStyle = 'text-emerald-900 font-bold';
-                        } else if (isChecked && !isCorrectOpt) {
+                        } else if (isWrongUserPick) {
                           optionStyle = 'border-rose-500 bg-rose-100';
                           textStyle = 'text-rose-900 font-bold';
                         }
@@ -771,7 +773,7 @@ function ExamContent() {
                         <div
                           key={opt.label}
                           onClick={() => handleMultipleChoice(opt.label)}
-                          className={`flex items-start gap-3 cursor-pointer group py-2.5 px-3.5 rounded-xl border transition-all ${optionStyle}`}
+                          className={`flex items-start gap-3 cursor-pointer py-2.5 px-3.5 rounded-xl border transition-all ${optionStyle}`}
                         >
                           <div
                             className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
@@ -811,7 +813,7 @@ function ExamContent() {
                                 Kunci Benar
                               </span>
                             )}
-                            {isExamFinished && isChecked && !isCorrectOpt && (
+                            {isExamFinished && isWrongUserPick && (
                               <span className="ml-2 text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-semibold">
                                 Jawaban Anda (Salah)
                               </span>
