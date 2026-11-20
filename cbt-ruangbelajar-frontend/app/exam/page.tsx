@@ -26,7 +26,7 @@ function ExamContent() {
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
-  const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '1');
+  const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '');
   const [isInitializing, setIsInitializing] = useState(true);
 
   const [isExamStarted, setIsExamStarted] = useState(false);
@@ -34,6 +34,7 @@ function ExamContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Selalu false di awal sesi sampai siswa benar-benar menekan Selesaikan / mengakhiri ujian
   const [isExamFinished, setIsExamFinished] = useState(false);
 
   const [questions, setQuestions] = useState<any[]>([]);
@@ -87,18 +88,23 @@ function ExamContent() {
     }
   }, []);
 
+  // 1. START EXAM: mulai sesi baru & pastikan sesi aktif tidak terkunci kunci jawaban sebelum selesai
   useEffect(() => {
     if (urlStudentExamId) {
       setStudentExamId(urlStudentExamId);
+      setIsExamFinished(false);
       setIsInitializing(false);
       return;
     }
 
     if (currentUserId === 'guest') {
+      setStudentExamId('guest');
+      setIsExamFinished(false);
       setIsInitializing(false);
       return;
     }
 
+    setIsExamFinished(false);
     callExamLifecycleApi('start', {
       user_id: Number(currentUserId),
       exam_id: Number(examId),
@@ -106,36 +112,30 @@ function ExamContent() {
       .then((data) => {
         if (data.success && data.student_exam_id) {
           setStudentExamId(String(data.student_exam_id));
-        } else if (data.is_completed) {
-          setIsExamFinished(true);
-          if (data.student_exam_id) {
-            setStudentExamId(String(data.student_exam_id));
-          }
+        } else if (data.student_exam_id) {
+          setStudentExamId(String(data.student_exam_id));
+        } else {
+          setStudentExamId(`session_${currentUserId}_${examId}`);
         }
       })
       .catch((err) => {
         console.error('Gagal memulai sesi ujian:', err);
+        setStudentExamId(`session_${currentUserId}_${examId}`);
       })
       .finally(() => {
         setIsInitializing(false);
       });
   }, [currentUserId, examId, urlStudentExamId]);
 
-  const timerKey = `cbt_timer_${currentUserId}_${examId}_${studentExamId}`;
-  const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
-  const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
-  const scoreKey = `cbt_score_${currentUserId}_${examId}_${studentExamId}`;
+  const activeSessionId = studentExamId || 'pending';
+  const timerKey = `cbt_timer_${currentUserId}_${examId}_${activeSessionId}`;
+  const answersKey = `cbt_answers_${currentUserId}_${examId}_${activeSessionId}`;
+  const scoreKey = `cbt_score_${currentUserId}_${examId}_${activeSessionId}`;
 
   useEffect(() => {
-    if (isInitializing) return;
+    if (isInitializing || !studentExamId) return;
 
     if (typeof window !== 'undefined') {
-      const isFinishedSaved = localStorage.getItem(finishedKey) === 'true';
-      if (isFinishedSaved) {
-        setIsExamFinished(true);
-        setIsExamStarted(true);
-      }
-
       const savedAns = localStorage.getItem(answersKey);
       if (savedAns) {
         try {
@@ -144,21 +144,11 @@ function ExamContent() {
       }
 
       const savedTime = localStorage.getItem(timerKey);
-      if (savedTime !== null) {
+      if (savedTime !== null && !Number.isNaN(Number(savedTime)) && Number(savedTime) > 0) {
         setTimeLeft(Number(savedTime));
       }
-
-      const savedScore = localStorage.getItem(scoreKey);
-      if (savedScore !== null && !Number.isNaN(Number(savedScore))) {
-        const numericScore = Number(savedScore);
-        setExamResultData({
-          score: numericScore,
-          status: numericScore >= 80 ? 'Tinggi' : numericScore >= 60 ? 'Sedang' : 'Rendah',
-          hasCalculated: true,
-        });
-      }
     }
-  }, [isInitializing, finishedKey, answersKey, timerKey, scoreKey]);
+  }, [isInitializing, studentExamId, answersKey, timerKey]);
 
   useEffect(() => {
     if (!examId) return;
@@ -195,11 +185,15 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
+  // 2. ANSWER
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
     if (isExamFinished || currentUserId === 'guest') return;
+    const numericSessionId = Number(studentExamId);
+    if (!numericSessionId) return;
+
     try {
       await callExamLifecycleApi('answer', {
-        student_exam_id: Number(studentExamId),
+        student_exam_id: numericSessionId,
         question_id: questionId,
         jawaban: answerValue,
       });
@@ -332,27 +326,6 @@ function ExamContent() {
     [questions, getQuestionScoreRatio]
   );
 
-  // Sinkronkan skor yang tersimpan jika soal baru selesai dimuat setelah refresh
-  useEffect(() => {
-    if (!isExamFinished || questions.length === 0) return;
-    if (examResultData.hasCalculated) return;
-
-    const computed = computeTotalScoreFromAnswers(answers);
-    localStorage.setItem(scoreKey, String(computed));
-    setExamResultData({
-      score: computed,
-      status: computed >= 80 ? 'Tinggi' : computed >= 60 ? 'Sedang' : 'Rendah',
-      hasCalculated: true,
-    });
-  }, [
-    isExamFinished,
-    questions,
-    answers,
-    examResultData.hasCalculated,
-    computeTotalScoreFromAnswers,
-    scoreKey,
-  ]);
-
   const checkIsCorrect = (q: any, userAns: any) => {
     return getQuestionScoreRatio(q, userAns) >= 0.99;
   };
@@ -383,6 +356,7 @@ function ExamContent() {
   };
 
   const handleOpenResultModal = () => {
+    if (!isExamFinished) return;
     if (examResultData.hasCalculated) {
       setIsResultModalOpen(true);
       return;
@@ -397,6 +371,7 @@ function ExamContent() {
     setIsResultModalOpen(true);
   };
 
+  // 3. FINISH EXAM: hanya dipanggil saat siswa menekan Selesaikan / waktu habis
   const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
@@ -404,10 +379,11 @@ function ExamContent() {
     try {
       const calculatedScore = computeTotalScoreFromAnswers(answers);
       const totalTimeSpent = 90 * 60 - timeLeft;
+      const numericSessionId = Number(studentExamId);
 
-      if (currentUserId !== 'guest') {
+      if (currentUserId !== 'guest' && numericSessionId) {
         await callExamLifecycleApi('finish', {
-          student_exam_id: Number(studentExamId),
+          student_exam_id: numericSessionId,
           final_score: calculatedScore,
           duration: totalTimeSpent > 0 ? totalTimeSpent : 0,
           answers: answers,
@@ -415,7 +391,6 @@ function ExamContent() {
       }
 
       setIsExamFinished(true);
-      localStorage.setItem(finishedKey, 'true');
       localStorage.setItem(scoreKey, String(calculatedScore));
 
       setExamResultData({
@@ -428,7 +403,6 @@ function ExamContent() {
       console.error('Error saat menyelesaikan ujian:', error);
       const fallbackScore = computeTotalScoreFromAnswers(answers);
       setIsExamFinished(true);
-      localStorage.setItem(finishedKey, 'true');
       localStorage.setItem(scoreKey, String(fallbackScore));
       setExamResultData({
         score: fallbackScore,
@@ -486,7 +460,7 @@ function ExamContent() {
               Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.
             </li>
             <li>
-              Setelah selesai, klik tombol <b>Akhiri Ujian</b>.
+              Kunci jawaban dan pembahasan baru terbuka setelah Anda menyelesaikan dan mengakhiri ujian.
             </li>
           </ol>
         </div>
@@ -574,7 +548,7 @@ function ExamContent() {
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
-  const currentQuestionCorrect = checkIsCorrect(currentQ, currentAns);
+  const currentQuestionCorrect = isExamFinished && checkIsCorrect(currentQ, currentAns);
 
   return (
     <div className="min-h-screen bg-[#eaf7f7] flex flex-col font-sans">
@@ -767,7 +741,7 @@ function ExamContent() {
                     {optionsList.map((opt) => {
                       const optLabel = String(opt.label).trim().toUpperCase();
                       const isChecked = userList.includes(optLabel);
-                      const isCorrectOpt = keyArr.includes(optLabel);
+                      const isCorrectOpt = isExamFinished && keyArr.includes(optLabel);
 
                       let optionStyle = 'border-slate-300 bg-white';
                       let textStyle = 'text-slate-700';
@@ -792,7 +766,7 @@ function ExamContent() {
                         >
                           <div
                             className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                              isChecked || (isExamFinished && isCorrectOpt)
+                              isChecked || isCorrectOpt
                                 ? 'border-current bg-current text-white'
                                 : 'border-slate-300'
                             }`}
