@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 function resolveAssetUrl(url: string): string {
@@ -43,12 +43,16 @@ function ExamContent() {
 
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
-  const [examResultData, setExamResultData] = useState({
+  const [examResultData, setExamResultData] = useState<{
+    score: number;
+    status: string;
+    hasCalculated: boolean;
+  }>({
     score: 0,
     status: 'Rendah',
+    hasCalculated: false,
   });
 
-  // Helper terpadu untuk start-exam, answer, dan finish
   const callExamLifecycleApi = async (
     action: 'start' | 'answer' | 'finish',
     payload: Record<string, any>
@@ -83,7 +87,6 @@ function ExamContent() {
     }
   }, []);
 
-  // 1. START EXAM
   useEffect(() => {
     if (urlStudentExamId) {
       setStudentExamId(urlStudentExamId);
@@ -121,13 +124,17 @@ function ExamContent() {
   const timerKey = `cbt_timer_${currentUserId}_${examId}_${studentExamId}`;
   const finishedKey = `cbt_finished_${currentUserId}_${examId}_${studentExamId}`;
   const answersKey = `cbt_answers_${currentUserId}_${examId}_${studentExamId}`;
+  const scoreKey = `cbt_score_${currentUserId}_${examId}_${studentExamId}`;
 
   useEffect(() => {
     if (isInitializing) return;
 
     if (typeof window !== 'undefined') {
       const isFinishedSaved = localStorage.getItem(finishedKey) === 'true';
-      setIsExamFinished(isFinishedSaved);
+      if (isFinishedSaved) {
+        setIsExamFinished(true);
+        setIsExamStarted(true);
+      }
 
       const savedAns = localStorage.getItem(answersKey);
       if (savedAns) {
@@ -140,10 +147,19 @@ function ExamContent() {
       if (savedTime !== null) {
         setTimeLeft(Number(savedTime));
       }
-    }
-  }, [isInitializing, finishedKey, answersKey, timerKey]);
 
-  // Ambil daftar soal lewat Next.js API Route (/api/questions)
+      const savedScore = localStorage.getItem(scoreKey);
+      if (savedScore !== null && !Number.isNaN(Number(savedScore))) {
+        const numericScore = Number(savedScore);
+        setExamResultData({
+          score: numericScore,
+          status: numericScore >= 80 ? 'Tinggi' : numericScore >= 60 ? 'Sedang' : 'Rendah',
+          hasCalculated: true,
+        });
+      }
+    }
+  }, [isInitializing, finishedKey, answersKey, timerKey, scoreKey]);
+
   useEffect(() => {
     if (!examId) return;
 
@@ -179,7 +195,6 @@ function ExamContent() {
     return `${h}:${m}:${s}`;
   };
 
-  // 2. ANSWER
   const saveAnswerToDB = async (questionId: number, answerValue: any) => {
     if (isExamFinished || currentUserId === 'guest') return;
     try {
@@ -193,7 +208,7 @@ function ExamContent() {
     }
   };
 
-  const getQuestionScoreRatio = (q: any, userAns: any) => {
+  const getQuestionScoreRatio = useCallback((q: any, userAns: any) => {
     if (userAns === undefined || userAns === null) return 0;
     let key = q.kunci_jawaban;
     if (key === undefined || key === null) return 0;
@@ -302,7 +317,41 @@ function ExamContent() {
     }
 
     return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
-  };
+  }, []);
+
+  const computeTotalScoreFromAnswers = useCallback(
+    (ansMap: { [key: number]: any }) => {
+      if (questions.length === 0) return 0;
+      let totalEarnedScore = 0;
+      questions.forEach((q: any) => {
+        const userAns = ansMap[q.id];
+        totalEarnedScore += getQuestionScoreRatio(q, userAns);
+      });
+      return Math.round((totalEarnedScore / questions.length) * 100);
+    },
+    [questions, getQuestionScoreRatio]
+  );
+
+  // Sinkronkan skor yang tersimpan jika soal baru selesai dimuat setelah refresh
+  useEffect(() => {
+    if (!isExamFinished || questions.length === 0) return;
+    if (examResultData.hasCalculated) return;
+
+    const computed = computeTotalScoreFromAnswers(answers);
+    localStorage.setItem(scoreKey, String(computed));
+    setExamResultData({
+      score: computed,
+      status: computed >= 80 ? 'Tinggi' : computed >= 60 ? 'Sedang' : 'Rendah',
+      hasCalculated: true,
+    });
+  }, [
+    isExamFinished,
+    questions,
+    answers,
+    examResultData.hasCalculated,
+    computeTotalScoreFromAnswers,
+    scoreKey,
+  ]);
 
   const checkIsCorrect = (q: any, userAns: any) => {
     return getQuestionScoreRatio(q, userAns) >= 0.99;
@@ -333,21 +382,27 @@ function ExamContent() {
     return String(key);
   };
 
-  // 3. FINISH EXAM
+  const handleOpenResultModal = () => {
+    if (examResultData.hasCalculated) {
+      setIsResultModalOpen(true);
+      return;
+    }
+    const computed = computeTotalScoreFromAnswers(answers);
+    localStorage.setItem(scoreKey, String(computed));
+    setExamResultData({
+      score: computed,
+      status: computed >= 80 ? 'Tinggi' : computed >= 60 ? 'Sedang' : 'Rendah',
+      hasCalculated: true,
+    });
+    setIsResultModalOpen(true);
+  };
+
   const handleFinishExam = async () => {
     if (isSubmitting || isExamFinished) return;
     setIsSubmitting(true);
 
     try {
-      let totalEarnedScore = 0;
-      questions.forEach((q: any) => {
-        const userAns = answers[q.id];
-        const ratio = getQuestionScoreRatio(q, userAns);
-        totalEarnedScore += ratio;
-      });
-
-      const totalSoal = questions.length > 0 ? questions.length : 1;
-      const calculatedScore = Math.round((totalEarnedScore / totalSoal) * 100);
+      const calculatedScore = computeTotalScoreFromAnswers(answers);
       const totalTimeSpent = 90 * 60 - timeLeft;
 
       if (currentUserId !== 'guest') {
@@ -361,16 +416,25 @@ function ExamContent() {
 
       setIsExamFinished(true);
       localStorage.setItem(finishedKey, 'true');
+      localStorage.setItem(scoreKey, String(calculatedScore));
 
       setExamResultData({
         score: calculatedScore,
         status: calculatedScore >= 80 ? 'Tinggi' : calculatedScore >= 60 ? 'Sedang' : 'Rendah',
+        hasCalculated: true,
       });
       setIsResultModalOpen(true);
     } catch (error: any) {
       console.error('Error saat menyelesaikan ujian:', error);
+      const fallbackScore = computeTotalScoreFromAnswers(answers);
       setIsExamFinished(true);
       localStorage.setItem(finishedKey, 'true');
+      localStorage.setItem(scoreKey, String(fallbackScore));
+      setExamResultData({
+        score: fallbackScore,
+        status: fallbackScore >= 80 ? 'Tinggi' : fallbackScore >= 60 ? 'Sedang' : 'Rendah',
+        hasCalculated: true,
+      });
       setIsResultModalOpen(true);
     } finally {
       setIsSubmitting(false);
@@ -510,6 +574,8 @@ function ExamContent() {
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
+  const currentQuestionCorrect = checkIsCorrect(currentQ, currentAns);
+
   return (
     <div className="min-h-screen bg-[#eaf7f7] flex flex-col font-sans">
       <header className="pt-6 pb-2 px-4 flex flex-col items-center justify-center">
@@ -543,7 +609,7 @@ function ExamContent() {
           ) : (
             <button
               type="button"
-              onClick={() => setIsResultModalOpen(true)}
+              onClick={handleOpenResultModal}
               className="bg-white border-2 border-sky-500 text-sky-500 hover:bg-sky-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
             >
               Lihat Hasil & Pembahasan
@@ -565,13 +631,25 @@ function ExamContent() {
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6 md:p-8 min-h-[420px] flex flex-col justify-between">
           <div>
             {isExamFinished && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm flex justify-between items-center">
-                <span>Mode Pembahasan: Anda sedang meninjau soal. Waktu berhenti dan jawaban terkunci.</span>
+              <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm flex flex-wrap justify-between items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-700">Status Jawaban:</span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      currentQuestionCorrect
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-rose-100 text-rose-700'
+                    }`}
+                  >
+                    {currentQuestionCorrect ? 'Betul (Sesuai Kunci)' : 'Salah (Belum Sesuai Kunci)'}
+                  </span>
+                </div>
                 <button
-                  onClick={() => setIsResultModalOpen(true)}
-                  className="bg-amber-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-amber-700"
+                  type="button"
+                  onClick={handleOpenResultModal}
+                  className="bg-sky-600 text-white px-3.5 py-1 rounded-lg text-xs font-bold hover:bg-sky-700 cursor-pointer"
                 >
-                  Kembali ke Rekap
+                  Lihat Hasil & Pembahasan
                 </button>
               </div>
             )}
@@ -982,7 +1060,7 @@ function ExamContent() {
                 setIsConfirmModalOpen(false);
                 handleFinishExam();
               }}
-              className="bg-rose-500 text-white px-8 py-2 rounded-full font-bold"
+              className="bg-rose-500 text-white px-8 py-2 rounded-full font-bold cursor-pointer"
             >
               Selesaikan
             </button>
@@ -1044,7 +1122,9 @@ function ExamContent() {
                   </div>
                   <div
                     className={`p-2 rounded-xl transition-all ${
-                      examResultData.score < 60 ? 'bg-rose-100 ring-2 ring-rose-500 font-bold' : 'opacity-50'
+                      examResultData.score < 60
+                        ? 'bg-rose-100 ring-2 ring-rose-500 font-bold'
+                        : 'opacity-50'
                     }`}
                   >
                     <span className="text-rose-600">0 - 59 = Rendah</span>
@@ -1054,30 +1134,16 @@ function ExamContent() {
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-gray-100">
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsResultModalOpen(false);
-                    setShowDiscussionModal(true);
-                  }}
-                  className="flex-1 sm:flex-none bg-[#4ad076] hover:bg-[#3fb867] text-white font-semibold px-6 py-2.5 rounded-full shadow-xs transition cursor-pointer text-sm"
-                >
-                  Pembahasan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.removeItem(timerKey);
-                    localStorage.removeItem(finishedKey);
-                    localStorage.removeItem(answersKey);
-                    window.location.reload();
-                  }}
-                  className="flex-1 sm:flex-none bg-[#38bdf8] hover:bg-[#0284c7] text-white font-semibold px-6 py-2.5 rounded-full shadow-sm transition cursor-pointer text-sm"
-                >
-                  Ulangi
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResultModalOpen(false);
+                  setShowDiscussionModal(true);
+                }}
+                className="w-full sm:w-auto bg-[#4ad076] hover:bg-[#3fb867] text-white font-semibold px-6 py-2.5 rounded-full shadow-xs transition cursor-pointer text-sm"
+              >
+                Pembahasan
+              </button>
 
               <button
                 type="button"
@@ -1117,26 +1183,10 @@ function ExamContent() {
             <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
               {questions.map((q, idx) => {
                 const userAns = answers[q.id];
-                let badgeColor = 'border-gray-300 text-gray-400 bg-gray-50';
-
-                if (userAns !== undefined && userAns !== null) {
-                  let isNotEmpty = false;
-                  if (Array.isArray(userAns)) {
-                    isNotEmpty = userAns.length > 0;
-                  } else if (typeof userAns === 'object') {
-                    isNotEmpty = Object.keys(userAns).length > 0;
-                  } else {
-                    isNotEmpty = String(userAns).trim() !== '';
-                  }
-
-                  if (isNotEmpty) {
-                    if (checkIsCorrect(q, userAns)) {
-                      badgeColor = 'border-emerald-500 text-emerald-600 bg-emerald-50 font-bold';
-                    } else {
-                      badgeColor = 'border-rose-500 text-rose-600 bg-rose-50 font-bold';
-                    }
-                  }
-                }
+                const isCorrect = checkIsCorrect(q, userAns);
+                const badgeColor = isCorrect
+                  ? 'border-emerald-500 text-emerald-600 bg-emerald-50 font-bold'
+                  : 'border-rose-500 text-rose-600 bg-rose-50 font-bold';
 
                 return (
                   <button
@@ -1162,10 +1212,6 @@ function ExamContent() {
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
                 <span>Salah</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-gray-300 inline-block"></span>
-                <span>Tidak Dijawab</span>
               </div>
             </div>
 
