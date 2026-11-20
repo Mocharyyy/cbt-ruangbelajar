@@ -3,37 +3,54 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  'http://139.190.107.150:5000'
+).replace(/\/+$/, '');
+
+interface LeaderboardItem {
+  user_id?: number | string;
+  nama_siswa: string;
+  total_ujian_dikerjakan: number;
+  status_bayes?: string;
+  duration: number;
+  score: number;
+}
+
+interface UserRankData extends LeaderboardItem {
+  rank: number;
+}
+
 export default function LeaderboardPage() {
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
-  const [userRankData, setUserRankData] = useState<any>(null);
-  const [totalSiswa, setTotalSiswa] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
+  const [userRankData, setUserRankData] = useState<UserRankData | null>(null);
+  const [totalSiswa, setTotalSiswa] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Ambil user_id dari localStorage (sesuaikan key login aplikasi Anda, misal 'user' atau 'user_id')
     let currentUserId = '';
     try {
       const savedUser = localStorage.getItem('user');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
-        currentUserId = parsed.id || parsed.user_id || '';
+        currentUserId = String(parsed.id || parsed.user_id || '');
       }
-    } catch (e) {
-      // Fallback jika disimpan langsung sebagai string ID
+    } catch {
       currentUserId = localStorage.getItem('user_id') || '';
     }
 
-    const url = currentUserId 
-      ? `https://cbt-ruangbelajar-backend.vercel.app/api/leaderboard?user_id=${currentUserId}`
-      : `https://cbt-ruangbelajar-backend.vercel.app/api/leaderboard`;
+    const url = currentUserId
+      ? `${API_BASE_URL}/api/leaderboard?user_id=${encodeURIComponent(currentUserId)}`
+      : `${API_BASE_URL}/api/leaderboard`;
 
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          setLeaderboard(data.leaderboard || []);
+          setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : []);
           setUserRankData(data.userRank || null);
-          setTotalSiswa(data.totalSiswa || 0);
+          setTotalSiswa(Number(data.totalSiswa) || 0);
         }
         setLoading(false);
       })
@@ -43,7 +60,6 @@ export default function LeaderboardPage() {
       });
   }, []);
 
-  // Fungsi pengubah detik ke format menit & detik
   const formatDuration = (totalSeconds: number) => {
     if (!totalSeconds) return '0m 0s';
     const minutes = Math.floor(totalSeconds / 60);
@@ -51,14 +67,16 @@ export default function LeaderboardPage() {
     return `${minutes}m ${seconds}s`;
   };
 
-  // Cek apakah user yang login sudah ada di dalam Top 10
   const isUserInTop10 = userRankData ? userRankData.rank <= 10 : true;
 
   return (
     <div className="min-h-screen bg-emerald-600 p-6 md:p-10 font-sans text-white pb-24">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-8">
-          <Link href="/dashboard" className="bg-emerald-700 hover:bg-emerald-800 px-4 py-2 rounded-xl text-sm font-bold transition">
+          <Link
+            href="/dashboard"
+            className="bg-emerald-700 hover:bg-emerald-800 px-4 py-2 rounded-xl text-sm font-bold transition"
+          >
             ← Kembali ke Dashboard
           </Link>
           <h1 className="text-2xl font-black tracking-tight">Papan Peringkat Kuis</h1>
@@ -66,7 +84,9 @@ export default function LeaderboardPage() {
 
         {/* Header / Info */}
         <div className="text-center mb-10">
-          <p className="text-xs text-emerald-200 mt-1">Akumulasi total skor tertinggi dan waktu tercepat</p>
+          <p className="text-xs text-emerald-200 mt-1">
+            Akumulasi total skor tertinggi dan waktu tercepat
+          </p>
         </div>
 
         {/* List Ranking Top 10 */}
@@ -79,19 +99,29 @@ export default function LeaderboardPage() {
         ) : (
           <div className="space-y-4">
             {leaderboard.map((item, index) => (
-              <div 
-                key={item.user_id || index} 
+              <div
+                key={item.user_id || index}
                 className="bg-white text-slate-800 rounded-2xl p-5 shadow-md flex items-center justify-between transform transition hover:scale-[1.01]"
               >
                 <div className="flex items-center space-x-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white ${
-                    index === 0 ? 'bg-amber-500' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-amber-700' : 'bg-emerald-600'
-                  }`}>
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-white ${
+                      index === 0
+                        ? 'bg-amber-500'
+                        : index === 1
+                        ? 'bg-slate-400'
+                        : index === 2
+                        ? 'bg-amber-700'
+                        : 'bg-emerald-600'
+                    }`}
+                  >
                     {index + 1}
                   </div>
                   <div>
                     <h3 className="font-bold text-base text-slate-900">{item.nama_siswa}</h3>
-                    <p className="text-xs text-gray-500">Selesai: {item.total_ujian_dikerjakan} paket mapel</p>
+                    <p className="text-xs text-gray-500">
+                      Selesai: {item.total_ujian_dikerjakan} paket mapel
+                    </p>
                     <div className="flex items-center space-x-2 mt-1">
                       <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
                         Bayes: {item.status_bayes || 'Selesai'}
@@ -114,15 +144,22 @@ export default function LeaderboardPage() {
             {/* Jika User Berada di Luar Top 10, Tampilkan Kartu Khusus di Bawah */}
             {userRankData && !isUserInTop10 && (
               <div className="mt-8 pt-6 border-t border-emerald-500/50">
-                <p className="text-xs text-emerald-200 mb-2 font-semibold uppercase tracking-wider text-center">Peringkat Anda Saat Ini</p>
+                <p className="text-xs text-emerald-200 mb-2 font-semibold uppercase tracking-wider text-center">
+                  Peringkat Anda Saat Ini
+                </p>
                 <div className="bg-emerald-800 text-white border-2 border-amber-400 rounded-2xl p-5 shadow-xl flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="w-10 h-10 rounded-full flex items-center justify-center font-black bg-amber-500 text-white shadow">
                       #{userRankData.rank}
                     </div>
                     <div>
-                      <h3 className="font-bold text-base text-white">{userRankData.nama_siswa} (Anda)</h3>
-                      <p className="text-xs text-emerald-200">Selesai: {userRankData.total_ujian_dikerjakan} paket mapel dari {totalSiswa} total siswa</p>
+                      <h3 className="font-bold text-base text-white">
+                        {userRankData.nama_siswa} (Anda)
+                      </h3>
+                      <p className="text-xs text-emerald-200">
+                        Selesai: {userRankData.total_ujian_dikerjakan} paket mapel dari {totalSiswa}{' '}
+                        total siswa
+                      </p>
                       <div className="flex items-center space-x-2 mt-1">
                         <span className="text-[10px] font-bold bg-emerald-900 text-emerald-200 px-2 py-0.5 rounded-full">
                           Bayes: {userRankData.status_bayes || 'Selesai'}
