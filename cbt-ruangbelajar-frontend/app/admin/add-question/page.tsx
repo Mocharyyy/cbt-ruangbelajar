@@ -7,12 +7,6 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  'http://139.190.107.150:5000'
-).replace(/\/+$/, '');
-
 type QuestionType = 'single' | 'multiple' | 'true_false';
 
 interface QuestionFormState {
@@ -33,6 +27,32 @@ interface QuestionFormState {
 }
 
 const DEFAULT_TF_KEY = 'B,B,B,B';
+
+function compressImageToDataUrl(file: File, maxWidth = 900, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(String(reader.result || ''));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('Gagal memproses file gambar'));
+      img.src = String(reader.result || '');
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file gambar'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function AddEditQuestionContent() {
   const searchParams = useSearchParams();
@@ -57,14 +77,6 @@ function AddEditQuestionContent() {
     kunci_jawaban: 'A',
   });
 
-  const [files, setFiles] = useState<Record<string, File | null>>({
-    gambar_soal: null,
-    opsi_a_img: null,
-    opsi_b_img: null,
-    opsi_c_img: null,
-    opsi_d_img: null,
-  });
-
   const [loading, setLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
 
@@ -76,13 +88,13 @@ function AddEditQuestionContent() {
     if (!editId) return;
 
     setIsFetching(true);
-    fetch(`${API_URL}/api/admin/questions/${encodeURIComponent(editId)}`, {
+    fetch(`/api/questions?id=${encodeURIComponent(editId)}`, {
       cache: 'no-store',
     })
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.data) {
-          const q = data.data;
+        const q = data.data || (Array.isArray(data.questions) ? data.questions[0] : null);
+        if (q) {
           const loadedType: QuestionType =
             q.tipe_soal === 'multiple' || q.tipe_soal === 'true_false'
               ? q.tipe_soal
@@ -144,29 +156,19 @@ function AddEditQuestionContent() {
     });
   };
 
-  const handleFileUpload = (field: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    field: keyof QuestionFormState,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setFiles((prev) => ({ ...prev, [field]: file }));
-    const previewUrl = URL.createObjectURL(file);
-    setFormData((prev) => ({ ...prev, [field]: previewUrl }));
-  };
-
-  const uploadSingleFile = async (file: File): Promise<string> => {
-    const uploadData = new FormData();
-    uploadData.append('image', file);
-
-    const res = await fetch(`${API_URL}/api/admin/upload`, {
-      method: 'POST',
-      body: uploadData,
-    });
-
-    const data = await res.json();
-    if (res.ok && data.success && data.imageUrl) {
-      return String(data.imageUrl);
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setFormData((prev) => ({ ...prev, [field]: dataUrl }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal memproses gambar');
     }
-    throw new Error(data.message || 'Gagal mengunggah file gambar');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -174,43 +176,24 @@ function AddEditQuestionContent() {
     setLoading(true);
 
     try {
-      const payloadData: QuestionFormState = { ...formData };
-      const fileKeys = [
-        'gambar_soal',
-        'opsi_a_img',
-        'opsi_b_img',
-        'opsi_c_img',
-        'opsi_d_img',
-      ] as const;
-
-      for (const key of fileKeys) {
-        const fileToUpload = files[key];
-        if (fileToUpload) {
-          payloadData[key] = await uploadSingleFile(fileToUpload);
-        } else if (payloadData[key].startsWith('blob:')) {
-          payloadData[key] = '';
-        }
-      }
-
       const resolvedExamId = Number(formData.exam_id || examId) || Number(examId) || 1;
 
       const finalPayload = {
-        ...payloadData,
+        ...formData,
         exam_id: resolvedExamId,
-        soal: payloadData.teks_sebelum_gambar || '',
-        image_url: payloadData.gambar_soal || '',
-        teks_lanjutan: payloadData.teks_sesudah_gambar || '',
-        teks_sesudah_gambar: payloadData.teks_sesudah_gambar || '',
-        opsi_a: payloadData.opsi_a_text || '',
-        opsi_b: payloadData.opsi_b_text || '',
-        opsi_c: payloadData.opsi_c_text || '',
-        opsi_d: payloadData.opsi_d_text || '',
+        soal: formData.teks_sebelum_gambar || '',
+        image_url: formData.gambar_soal || '',
+        teks_lanjutan: formData.teks_sesudah_gambar || '',
+        teks_sesudah_gambar: formData.teks_sesudah_gambar || '',
+        opsi_a: formData.opsi_a_text || '',
+        opsi_b: formData.opsi_b_text || '',
+        opsi_c: formData.opsi_c_text || '',
+        opsi_d: formData.opsi_d_text || '',
       };
 
       const endpoint = editId
-        ? `${API_URL}/api/admin/questions/${encodeURIComponent(editId)}`
-        : `${API_URL}/api/admin/questions`;
-
+        ? `/api/questions?id=${encodeURIComponent(editId)}`
+        : '/api/questions';
       const method = editId ? 'PUT' : 'POST';
 
       const res = await fetch(endpoint, {
@@ -219,12 +202,19 @@ function AddEditQuestionContent() {
         body: JSON.stringify(finalPayload),
       });
 
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: { success?: boolean; message?: string; error?: string } = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error('Respons server tidak valid saat menyimpan soal');
+      }
+
       if (res.ok && data.success) {
         alert(
           editId
-            ? 'Soal berhasil diperbarui dan langsung sinkron ke ujian siswa!'
-            : 'Soal berhasil disimpan dan langsung tersedia untuk ujian siswa!'
+            ? 'Soal berhasil diperbarui!'
+            : 'Soal berhasil disimpan dan langsung masuk ke ujian siswa!'
         );
         router.push(`/admin/questions?exam_id=${resolvedExamId}`);
         router.refresh();
@@ -233,11 +223,7 @@ function AddEditQuestionContent() {
       }
     } catch (err) {
       console.error(err);
-      alert(
-        err instanceof Error
-          ? err.message
-          : 'Terjadi kesalahan saat mengunggah gambar atau menyambung ke server'
-      );
+      alert(err instanceof Error ? err.message : 'Gagal menyambung ke server');
     } finally {
       setLoading(false);
     }
@@ -329,10 +315,7 @@ function AddEditQuestionContent() {
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      setFiles((prev) => ({ ...prev, gambar_soal: null }));
-                      setFormData({ ...formData, gambar_soal: '' });
-                    }}
+                    onClick={() => setFormData({ ...formData, gambar_soal: '' })}
                     className="mt-1 text-xs text-red-600 hover:underline font-semibold"
                   >
                     Hapus Gambar
@@ -419,11 +402,22 @@ function AddEditQuestionContent() {
                             className="block w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"
                           />
                           {formData[keyImg] && (
-                            <img
-                              src={formData[keyImg]}
-                              alt="Preview Opsi"
-                              className="h-12 mt-2 rounded border object-contain"
-                            />
+                            <div className="mt-2 flex items-center space-x-2">
+                              <img
+                                src={formData[keyImg]}
+                                alt="Preview Opsi"
+                                className="h-12 rounded border object-contain"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormData({ ...formData, [keyImg]: '' })
+                                }
+                                className="text-[11px] text-red-600 hover:underline font-semibold"
+                              >
+                                Hapus
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -546,9 +540,7 @@ function AddEditQuestionContent() {
               disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition duration-200 text-sm disabled:opacity-50"
             >
-              {loading
-                ? 'Menyimpan & Mengunggah Gambar...'
-                : 'Simpan Soal Ujian'}
+              {loading ? 'Menyimpan Soal...' : 'Simpan Soal Ujian'}
             </button>
           </form>
         </div>
