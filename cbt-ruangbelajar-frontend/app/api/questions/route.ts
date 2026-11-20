@@ -1,67 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL =
+const BACKEND_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.BACKEND_URL ||
-  'http://139.190.107.150:5000';
+  'http://139.190.107.150:5000'
+).replace(/\/+$/, '');
 
-// 1. Ambil Soal (GET)
-export async function GET(request: NextRequest) {
+async function forwardRequest(request: NextRequest, method: 'GET' | 'DELETE') {
   try {
     const searchParams = request.nextUrl.searchParams.toString();
-    const targetUrl = `${BACKEND_URL.replace(/\/+$/, '')}/api/questions${
+    const targetUrl = `${BACKEND_URL}/api/questions${
       searchParams ? `?${searchParams}` : ''
     }`;
 
     const response = await fetch(targetUrl, {
-      method: 'GET',
+      method,
       headers: {
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
     });
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
-  } catch (error: any) {
+    const rawText = await response.text();
+    let parsedData: unknown;
+
+    try {
+      parsedData = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Respons backend bukan JSON valid',
+          detail: rawText.slice(0, 300),
+        },
+        { status: response.ok ? 502 : response.status }
+      );
+    }
+
+    return NextResponse.json(parsedData, { status: response.status });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : 'Gagal menghubungi backend soal';
     return NextResponse.json(
-      { error: error?.message || 'Gagal mengambil data soal dari backend' },
+      { success: false, error: message },
       { status: 500 }
     );
   }
 }
 
-// 2. Hapus Soal (DELETE)
+export async function GET(request: NextRequest) {
+  return forwardRequest(request, 'GET');
+}
+
 export async function DELETE(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams.toString();
-    const id = request.nextUrl.searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: 'ID soal wajib diisi' },
-        { status: 400 }
-      );
-    }
-
-    const targetUrl = `${BACKEND_URL.replace(/\/+$/, '')}/api/questions${
-      searchParams ? `?${searchParams}` : ''
-    }`;
-
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-    });
-
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
-  } catch (error: any) {
+  const id = request.nextUrl.searchParams.get('id');
+  if (!id) {
     return NextResponse.json(
-      { success: false, error: error?.message || 'Gagal menghapus soal dari backend' },
-      { status: 500 }
+      { success: false, error: 'ID soal wajib diisi' },
+      { status: 400 }
     );
   }
+
+  return forwardRequest(request, 'DELETE');
 }
