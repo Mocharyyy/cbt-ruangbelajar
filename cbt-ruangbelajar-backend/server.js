@@ -69,11 +69,80 @@ async function ensureColumnType(tableName, columnName, columnType) {
     const currentType = String(rows[0].Type || '').toLowerCase();
     if (!currentType.includes(columnType.toLowerCase())) {
       await db.query(
-        `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${columnType} NULL`
+        `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${columnType}`
       );
     }
   }
 }
+
+const CANONICAL_EXAMS = [
+  {
+    id: 'sd_bindo',
+    mapel_id: 2,
+    kode: 'SD-BINDO',
+    mapel: 'Bahasa Indonesia',
+    judul_ujian: 'Paket Latihan Bahasa Indonesia (SD)',
+    jenjang: 'SD',
+    durasi: 90,
+    target_soal: 50,
+    deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SD (50 Soal)'
+  },
+  {
+    id: 'sd_mtk',
+    mapel_id: 1,
+    kode: 'SD-MTK',
+    mapel: 'Matematika',
+    judul_ujian: 'Paket Latihan Matematika (SD)',
+    jenjang: 'SD',
+    durasi: 90,
+    target_soal: 30,
+    deskripsi: 'Tes Kemampuan Akademik & Pemahaman Konsep Matematika SD (30 Soal)'
+  },
+  {
+    id: 'smp_bindo',
+    mapel_id: 5,
+    kode: 'SMP-BINDO',
+    mapel: 'Bahasa Indonesia',
+    judul_ujian: 'Paket Latihan Bahasa Indonesia (SMP)',
+    jenjang: 'SMP',
+    durasi: 90,
+    target_soal: 50,
+    deskripsi: 'Literasi Bahasa & Analisis Teks SMP (50 Soal)'
+  },
+  {
+    id: 'smp_mtk',
+    mapel_id: 4,
+    kode: 'SMP-MTK',
+    mapel: 'Matematika',
+    judul_ujian: 'Paket Latihan Matematika (SMP)',
+    jenjang: 'SMP',
+    durasi: 90,
+    target_soal: 30,
+    deskripsi: 'Tes Kemampuan Akademik & Penalaran Matematika SMP (30 Soal)'
+  },
+  {
+    id: 'sma_smk_bindo',
+    mapel_id: 9,
+    kode: 'SMA-BINDO',
+    mapel: 'Bahasa Indonesia',
+    judul_ujian: 'Paket Latihan Bahasa Indonesia (SMA/SMK)',
+    jenjang: 'SMA/SMK',
+    durasi: 90,
+    target_soal: 50,
+    deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SMA/SMK (50 Soal)'
+  },
+  {
+    id: 'sma_smk_mtk',
+    mapel_id: 8,
+    kode: 'SMA-MTK',
+    mapel: 'Matematika',
+    judul_ujian: 'Paket Latihan Matematika (SMA/SMK)',
+    jenjang: 'SMA/SMK',
+    durasi: 90,
+    target_soal: 30,
+    deskripsi: 'Tes Kemampuan Akademik & Penalaran Matematika SMA/SMK (30 Soal)'
+  }
+];
 
 // ==========================================
 // INISIALISASI TABEL & DATA AWAL (IDEMPOTENT)
@@ -110,22 +179,25 @@ async function initializeDatabase() {
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS exams (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id VARCHAR(50) PRIMARY KEY,
         mapel_id INT NOT NULL,
         kode VARCHAR(30) DEFAULT NULL,
         judul_ujian VARCHAR(200) NOT NULL,
         jenjang VARCHAR(20) NOT NULL,
         durasi INT DEFAULT 90,
+        target_soal INT DEFAULT 50,
         deskripsi TEXT DEFAULT NULL,
-        INDEX idx_exams_mapel (mapel_id),
-        CONSTRAINT fk_exams_mapel FOREIGN KEY (mapel_id) REFERENCES mapel(id) ON DELETE CASCADE
+        INDEX idx_exams_mapel (mapel_id)
       )
     `);
+
+    await ensureColumnType('exams', 'id', 'VARCHAR(50) NOT NULL');
+    await ensureColumnExists('exams', 'target_soal', 'INT DEFAULT 50 AFTER durasi');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS questions (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        exam_id INT NOT NULL,
+        exam_id VARCHAR(50) NOT NULL,
         tipe_soal VARCHAR(50) DEFAULT 'single',
         soal TEXT,
         image_url LONGTEXT,
@@ -144,6 +216,7 @@ async function initializeDatabase() {
       )
     `);
 
+    await ensureColumnType('questions', 'exam_id', 'VARCHAR(50) NOT NULL');
     await ensureColumnExists('questions', 'teks_sesudah_gambar', 'TEXT NULL AFTER image_url');
     await ensureColumnExists('questions', 'opsi_a_img', 'LONGTEXT NULL AFTER opsi_e');
     await ensureColumnExists('questions', 'opsi_b_img', 'LONGTEXT NULL AFTER opsi_a_img');
@@ -160,7 +233,7 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS student_exams (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        exam_id INT NOT NULL,
+        exam_id VARCHAR(50) NOT NULL,
         status VARCHAR(30) DEFAULT 'ongoing',
         score INT DEFAULT 0,
         skor_akhir INT DEFAULT 0,
@@ -173,6 +246,8 @@ async function initializeDatabase() {
         INDEX idx_student_exams_exam (exam_id)
       )
     `);
+
+    await ensureColumnType('student_exams', 'exam_id', 'VARCHAR(50) NOT NULL');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS student_answers (
@@ -192,43 +267,42 @@ async function initializeDatabase() {
       )
     `);
 
+    await db.query(`DELETE FROM mapel WHERE nama_mapel NOT IN ('Matematika', 'Bahasa Indonesia')`);
     await db.query(`
       INSERT INTO mapel (id, nama_mapel, jenjang) VALUES
         (1, 'Matematika', 'SD'),
         (2, 'Bahasa Indonesia', 'SD'),
-        (3, 'IPAS', 'SD'),
         (4, 'Matematika', 'SMP'),
         (5, 'Bahasa Indonesia', 'SMP'),
-        (6, 'IPA', 'SMP'),
-        (7, 'Bahasa Inggris', 'SMP'),
         (8, 'Matematika', 'SMA/SMK'),
-        (9, 'Bahasa Indonesia', 'SMA/SMK'),
-        (10, 'Bahasa Inggris', 'SMA/SMK')
+        (9, 'Bahasa Indonesia', 'SMA/SMK')
       ON DUPLICATE KEY UPDATE
         nama_mapel = VALUES(nama_mapel),
         jenjang = VALUES(jenjang)
     `);
 
     await db.query(`
-      INSERT INTO exams (id, mapel_id, kode, judul_ujian, jenjang, durasi, deskripsi) VALUES
-        (1, 1, 'SD-01', 'Paket 1 Latihan Matematika Utama (SD)', 'SD', 90, 'Tes Kemampuan Akademik & Pemahaman Konsep SD'),
-        (2, 2, 'SD-02', 'Paket 1 Latihan Bahasa Indonesia (SD)', 'SD', 90, 'Literasi Bahasa & Pemahaman Bacaan SD'),
-        (3, 3, 'SD-03', 'Paket 1 Latihan IPAS (SD)', 'SD', 90, 'Pemahaman Konsep IPA & IPS SD'),
-        (4, 4, 'SMP-01', 'Paket 1 Latihan Matematika Utama (SMP)', 'SMP', 90, 'Tes Kemampuan Akademik & Penalaran Matematika SMP'),
-        (5, 5, 'SMP-02', 'Paket 1 Latihan Bahasa Indonesia (SMP)', 'SMP', 90, 'Literasi Bahasa & Analisis Teks SMP'),
-        (6, 6, 'SMP-03', 'Paket 1 Latihan IPA (SMP)', 'SMP', 90, 'Sains & Konsep Alam Tingkat SMP'),
-        (7, 7, 'SMP-04', 'Paket 1 Latihan Bahasa Inggris (SMP)', 'SMP', 90, 'Reading Comprehension & Grammar SMP'),
-        (8, 8, 'SMA-01', 'Paket 1 Latihan Matematika Utama (SMA/SMK)', 'SMA/SMK', 90, 'Tes Kemampuan Akademik & Penalaran Matematika SMA/SMK'),
-        (9, 9, 'SMA-02', 'Paket 1 Latihan Bahasa Indonesia (SMA/SMK)', 'SMA/SMK', 90, 'Literasi Bahasa & Pemahaman Bacaan SMA/SMK'),
-        (10, 10, 'SMA-03', 'Paket 1 Latihan Bahasa Inggris (SMA/SMK)', 'SMA/SMK', 90, 'Reading & Bahasa Inggris Tingkat SMA/SMK')
-      ON DUPLICATE KEY UPDATE
-        mapel_id = VALUES(mapel_id),
-        kode = VALUES(kode),
-        judul_ujian = VALUES(judul_ujian),
-        jenjang = VALUES(jenjang),
-        durasi = VALUES(durasi),
-        deskripsi = VALUES(deskripsi)
+      DELETE FROM exams
+      WHERE id NOT IN ('sd_bindo', 'sd_mtk', 'smp_bindo', 'smp_mtk', 'sma_smk_bindo', 'sma_smk_mtk')
     `);
+
+    for (const ex of CANONICAL_EXAMS) {
+      await db.query(
+        `
+        INSERT INTO exams (id, mapel_id, kode, judul_ujian, jenjang, durasi, target_soal, deskripsi)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          mapel_id = VALUES(mapel_id),
+          kode = VALUES(kode),
+          judul_ujian = VALUES(judul_ujian),
+          jenjang = VALUES(jenjang),
+          durasi = VALUES(durasi),
+          target_soal = VALUES(target_soal),
+          deskripsi = VALUES(deskripsi)
+        `,
+        [ex.id, ex.mapel_id, ex.kode, ex.judul_ujian, ex.jenjang, ex.durasi, ex.target_soal, ex.deskripsi]
+      );
+    }
 
     const [nbRows] = await db.query('SELECT COUNT(*) AS total FROM dataset_naive_bayes');
     if ((nbRows[0]?.total || 0) === 0) {
@@ -344,6 +418,7 @@ function normalizeQuestionPayload(body) {
     tipe_soal,
     teks_sebelum_gambar,
     soal,
+    pertanyaan,
     gambar_soal,
     image_url,
     teks_sesudah_gambar,
@@ -362,22 +437,26 @@ function normalizeQuestionPayload(body) {
     opsi_b_img,
     opsi_c_img,
     opsi_d_img,
-    kunci_jawaban
+    kunci_jawaban,
+    jawaban_benar
   } = body;
 
+  const rawKunci = kunci_jawaban ?? jawaban_benar ?? '';
   let formattedKunci = '';
-  if (Array.isArray(kunci_jawaban)) {
-    formattedKunci = kunci_jawaban.join(',').trim();
-  } else if (typeof kunci_jawaban === 'object' && kunci_jawaban !== null) {
-    formattedKunci = Object.values(kunci_jawaban).join(',').trim();
+  if (Array.isArray(rawKunci)) {
+    formattedKunci = rawKunci.join(',').trim();
+  } else if (typeof rawKunci === 'object' && rawKunci !== null) {
+    formattedKunci = Object.values(rawKunci).join(',').trim();
   } else {
-    formattedKunci = String(kunci_jawaban || '').trim();
+    formattedKunci = String(rawKunci).trim();
   }
 
+  const normalizedExamId = String(exam_id || 'sd_bindo').trim() || 'sd_bindo';
+
   return {
-    examId: Number(exam_id) || 1,
+    examId: normalizedExamId,
     tipeSoal: tipe_soal || 'single',
-    questionText: teks_sebelum_gambar ?? soal ?? '',
+    questionText: teks_sebelum_gambar ?? soal ?? pertanyaan ?? '',
     questionImg: gambar_soal ?? image_url ?? null,
     afterText: teks_sesudah_gambar ?? teks_lanjutan ?? '',
     optA: opsi_a_text ?? opsi_a ?? '',
@@ -533,7 +612,7 @@ app.get('/api/admin/questions/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Soal tidak ditemukan' });
     }
-    return res.json({ success: true, data: rows[0] });
+    return res.json({ success: true, data: rows[0], question: rows[0] });
   } catch (error) {
     console.error('Error get single question:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -571,6 +650,7 @@ app.post('/api/admin/questions', async (req, res) => {
     return res.json({
       success: true,
       id: result.insertId,
+      exam_id: q.examId,
       message: 'Soal berhasil disimpan ke bank soal!'
     });
   } catch (error) {
@@ -638,6 +718,25 @@ app.delete('/api/admin/questions/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/questions', async (req, res) => {
+  const id = req.query.id;
+  if (!id) {
+    return res.status(400).json({ success: false, message: 'Parameter id wajib diisi' });
+  }
+
+  try {
+    const [rows] = await db.query('SELECT * FROM questions WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Soal tidak ditemukan' });
+    }
+    await db.query('DELETE FROM questions WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Soal berhasil dihapus!' });
+  } catch (error) {
+    console.error('Error deleting question via query:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus soal' });
+  }
+});
+
 app.get('/api/admin/questions', async (req, res) => {
   try {
     const examId = req.query.exam_id;
@@ -646,7 +745,7 @@ app.get('/api/admin/questions', async (req, res) => {
 
     if (examId) {
       query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
-      params = [examId];
+      params = [String(examId)];
     }
 
     const [rows] = await db.query(query, params);
@@ -752,7 +851,8 @@ app.get('/api/exams', async (req, res) => {
         SELECT exams.*, mapel.nama_mapel AS mapel
         FROM exams
         JOIN mapel ON exams.mapel_id = mapel.id
-        ORDER BY exams.id ASC
+        WHERE mapel.nama_mapel IN ('Matematika', 'Bahasa Indonesia')
+        ORDER BY FIELD(exams.id, 'sd_bindo', 'sd_mtk', 'smp_bindo', 'smp_mtk', 'sma_smk_bindo', 'sma_smk_mtk')
       `;
       const [rows] = await db.query(queryAll);
       return res.json({ success: true, exams: rows });
@@ -773,7 +873,8 @@ app.get('/api/exams', async (req, res) => {
       FROM exams
       JOIN mapel ON exams.mapel_id = mapel.id
       WHERE exams.jenjang = ?
-      ORDER BY exams.id ASC
+        AND mapel.nama_mapel IN ('Matematika', 'Bahasa Indonesia')
+      ORDER BY FIELD(exams.id, 'sd_bindo', 'sd_mtk', 'smp_bindo', 'smp_mtk', 'sma_smk_bindo', 'sma_smk_mtk')
     `;
 
     const [exams] = await db.query(queryStudent, [jenjangLabel]);
@@ -804,9 +905,11 @@ app.post('/api/student/start-exam', async (req, res) => {
       return res.status(400).json({ success: false, message: 'user_id dan exam_id wajib diisi' });
     }
 
+    const examIdStr = String(exam_id).trim();
+
     const [completedExam] = await db.query(
       `SELECT id, status FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'completed'`,
-      [user_id, exam_id]
+      [user_id, examIdStr]
     );
 
     if (completedExam.length > 0) {
@@ -820,7 +923,7 @@ app.post('/api/student/start-exam', async (req, res) => {
 
     const [existingExam] = await db.query(
       `SELECT id FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'ongoing'`,
-      [user_id, exam_id]
+      [user_id, examIdStr]
     );
 
     let student_exam_id;
@@ -829,7 +932,7 @@ app.post('/api/student/start-exam', async (req, res) => {
     } else {
       const [insertResult] = await db.query(
         `INSERT INTO student_exams (user_id, exam_id, status) VALUES (?, ?, 'ongoing')`,
-        [user_id, exam_id]
+        [user_id, examIdStr]
       );
       student_exam_id = insertResult.insertId;
     }
@@ -938,7 +1041,7 @@ app.get('/api/questions', async (req, res) => {
 
     if (examId) {
       query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
-      params = [examId];
+      params = [String(examId)];
     }
 
     const [rows] = await db.query(query, params);
@@ -951,7 +1054,7 @@ app.get('/api/questions', async (req, res) => {
 
 app.get('/api/exams/:examId/questions', async (req, res) => {
   try {
-    const examId = req.params.examId;
+    const examId = String(req.params.examId);
 
     const [questions] = await db.query('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
     const [examInfo] = await db.query('SELECT * FROM exams WHERE id = ?', [examId]);
