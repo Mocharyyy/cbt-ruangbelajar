@@ -15,82 +15,150 @@ interface UserData {
 }
 
 interface ExamPackage {
-  id: number | string;
+  id: string;
   judul?: string;
   judul_ujian?: string;
-  mapel: string;
-  jenjang?: string;
+  mapel: 'Matematika' | 'Bahasa Indonesia' | string;
+  jenjang: 'SD' | 'SMP' | 'SMA/SMK' | string;
   kode?: string;
   deskripsi?: string;
   durasi?: number;
+  target_soal?: number;
 }
 
-function resolveJenjang(rawKelas?: number | string, rawJenjang?: string): 'SD' | 'SMP' | 'SMA' {
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
+).replace(/\/+$/, '');
+
+function resolveJenjang(
+  rawKelas?: number | string,
+  rawJenjang?: string
+): 'SD' | 'SMP' | 'SMA/SMK' {
   const jenjangUpper = (rawJenjang || '').trim().toUpperCase();
   if (jenjangUpper.includes('SD') || jenjangUpper.includes('MI')) return 'SD';
   if (jenjangUpper.includes('SMP') || jenjangUpper.includes('MTS')) return 'SMP';
-  if (jenjangUpper.includes('SMA') || jenjangUpper.includes('SMK') || jenjangUpper.includes('MA')) {
-    return 'SMA';
+  if (
+    jenjangUpper.includes('SMA') ||
+    jenjangUpper.includes('SMK') ||
+    jenjangUpper.includes('MA')
+  ) {
+    return 'SMA/SMK';
   }
 
   const kelasNum = Number(rawKelas);
-  if (!Number.isNaN(kelasNum)) {
+  if (!Number.isNaN(kelasNum) && kelasNum > 0) {
     if (kelasNum <= 6) return 'SD';
     if (kelasNum <= 9) return 'SMP';
-    return 'SMA';
+    return 'SMA/SMK';
   }
 
-  return 'SMP';
+  return 'SD';
 }
 
-function getFallbackExamsByJenjang(jenjang: 'SD' | 'SMP' | 'SMA'): ExamPackage[] {
+function getExamsByJenjang(jenjang: 'SD' | 'SMP' | 'SMA/SMK'): ExamPackage[] {
   if (jenjang === 'SD') {
     return [
-      { id: 1, judul_ujian: 'Paket 1 Matematika (SD)', mapel: 'Matematika', jenjang: 'SD', deskripsi: 'Latihan Soal & Pemahaman Konsep SD', durasi: 90 },
-      { id: 2, judul_ujian: 'Paket 1 Bahasa Indonesia (SD)', mapel: 'Bahasa Indonesia', jenjang: 'SD', deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SD', durasi: 90 },
-      { id: 3, judul_ujian: 'Paket 1 IPAS (SD)', mapel: 'IPAS', jenjang: 'SD', deskripsi: 'Ilmu Pengetahuan Alam & Sosial SD', durasi: 90 },
+      {
+        id: 'sd_bindo',
+        kode: 'SD-BINDO',
+        judul_ujian: 'Paket Latihan Bahasa Indonesia (SD)',
+        mapel: 'Bahasa Indonesia',
+        jenjang: 'SD',
+        deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SD (50 Soal)',
+        durasi: 90,
+        target_soal: 50,
+      },
+      {
+        id: 'sd_mtk',
+        kode: 'SD-MTK',
+        judul_ujian: 'Paket Latihan Matematika (SD)',
+        mapel: 'Matematika',
+        jenjang: 'SD',
+        deskripsi: 'Tes Kemampuan Akademik & Matematika SD (30 Soal)',
+        durasi: 90,
+        target_soal: 30,
+      },
     ];
   }
 
   if (jenjang === 'SMP') {
     return [
-      { id: 4, judul_ujian: 'Paket 1 Matematika (SMP)', mapel: 'Matematika', jenjang: 'SMP', deskripsi: 'Latihan Soal & Penalaran Matematika SMP', durasi: 90 },
-      { id: 5, judul_ujian: 'Paket 1 Bahasa Indonesia (SMP)', mapel: 'Bahasa Indonesia', jenjang: 'SMP', deskripsi: 'Literasi & Analisis Teks SMP', durasi: 90 },
-      { id: 6, judul_ujian: 'Paket 1 IPA (SMP)', mapel: 'IPA', jenjang: 'SMP', deskripsi: 'Fisika, Biologi & Kimia Tingkat SMP', durasi: 90 },
-      { id: 7, judul_ujian: 'Paket 1 Bahasa Inggris (SMP)', mapel: 'Bahasa Inggris', jenjang: 'SMP', deskripsi: 'Reading Comprehension & Grammar SMP', durasi: 90 },
+      {
+        id: 'smp_bindo',
+        kode: 'SMP-BINDO',
+        judul_ujian: 'Paket Latihan Bahasa Indonesia (SMP)',
+        mapel: 'Bahasa Indonesia',
+        jenjang: 'SMP',
+        deskripsi: 'Literasi Bahasa & Analisis Teks SMP (50 Soal)',
+        durasi: 90,
+        target_soal: 50,
+      },
+      {
+        id: 'smp_mtk',
+        kode: 'SMP-MTK',
+        judul_ujian: 'Paket Latihan Matematika (SMP)',
+        mapel: 'Matematika',
+        jenjang: 'SMP',
+        deskripsi: 'Tes Kemampuan Akademik & Penalaran Matematika SMP (30 Soal)',
+        durasi: 90,
+        target_soal: 30,
+      },
     ];
   }
 
   return [
-    { id: 8, judul_ujian: 'Paket 1 Matematika (SMA/SMK)', mapel: 'Matematika', jenjang: 'SMA', deskripsi: 'Latihan Soal & Penalaran Matematika SMA/SMK', durasi: 90 },
-    { id: 9, judul_ujian: 'Paket 1 Bahasa Indonesia (SMA/SMK)', mapel: 'Bahasa Indonesia', jenjang: 'SMA', deskripsi: 'Literasi & Pemahaman Bacaan SMA/SMK', durasi: 90 },
-    { id: 10, judul_ujian: 'Paket 1 Bahasa Inggris (SMA/SMK)', mapel: 'Bahasa Inggris', jenjang: 'SMA', deskripsi: 'Reading & Bahasa Inggris Tingkat SMA/SMK', durasi: 90 },
+    {
+      id: 'sma_smk_bindo',
+      kode: 'SMA-BINDO',
+      judul_ujian: 'Paket Latihan Bahasa Indonesia (SMA/SMK)',
+      mapel: 'Bahasa Indonesia',
+      jenjang: 'SMA/SMK',
+      deskripsi: 'Literasi Bahasa & Pemahaman Bacaan SMA/SMK (50 Soal)',
+      durasi: 90,
+      target_soal: 50,
+    },
+    {
+      id: 'sma_smk_mtk',
+      kode: 'SMA-MTK',
+      judul_ujian: 'Paket Latihan Matematika (SMA/SMK)',
+      mapel: 'Matematika',
+      jenjang: 'SMA/SMK',
+      deskripsi: 'Tes Kemampuan Akademik & Penalaran Matematika SMA/SMK (30 Soal)',
+      durasi: 90,
+      target_soal: 30,
+    },
   ];
 }
 
-function filterExamsByJenjang(exams: ExamPackage[], jenjang: 'SD' | 'SMP' | 'SMA'): ExamPackage[] {
-  const matches = exams.filter((exam) => {
-    const combined = `${exam.jenjang || ''} ${exam.kode || ''} ${exam.judul_ujian || ''} ${exam.judul || ''} ${exam.mapel || ''}`.toUpperCase();
+function normalizeTwoMapelExams(
+  exams: ExamPackage[],
+  jenjang: 'SD' | 'SMP' | 'SMA/SMK'
+): ExamPackage[] {
+  const allowedIds =
+    jenjang === 'SD'
+      ? ['sd_bindo', 'sd_mtk']
+      : jenjang === 'SMP'
+        ? ['smp_bindo', 'smp_mtk']
+        : ['sma_smk_bindo', 'sma_smk_mtk'];
 
-    if (jenjang === 'SD') {
-      return combined.includes('SD') || combined.includes('MI') || combined.includes('IPAS');
-    }
-    if (jenjang === 'SMP') {
-      return (
-        (combined.includes('SMP') || combined.includes('MTS')) &&
-        !combined.includes('SD') &&
-        !combined.includes('SMA') &&
-        !combined.includes('SMK')
-      );
-    }
-    return (
-      (combined.includes('SMA') || combined.includes('SMK') || combined.includes('MA')) &&
-      !combined.includes('SMP') &&
-      !combined.includes('SD')
-    );
+  const filtered = exams.filter((exam) => {
+    const idStr = String(exam.id || '');
+    const mapelUpper = String(exam.mapel || '').toUpperCase();
+    const isAllowedMapel =
+      mapelUpper.includes('MATEMATIKA') ||
+      mapelUpper.includes('MTK') ||
+      mapelUpper.includes('BAHASA INDONESIA') ||
+      mapelUpper.includes('BINDO');
+
+    return allowedIds.includes(idStr) && isAllowedMapel;
   });
 
-  return matches;
+  if (filtered.length === 0) {
+    return getExamsByJenjang(jenjang);
+  }
+
+  const defaults = getExamsByJenjang(jenjang);
+  return defaults.map((def) => filtered.find((f) => String(f.id) === def.id) || def);
 }
 
 export default function DashboardPage() {
@@ -102,20 +170,25 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const savedUser = localStorage.getItem('studentUser') || localStorage.getItem('user');
+        const savedUser =
+          localStorage.getItem('studentUser') || localStorage.getItem('user');
         if (!savedUser) {
           router.push('/');
           return;
         }
 
         const parsedUser = JSON.parse(savedUser) as UserData;
-        const initialTingkat = parsedUser.tingkat_kelas ?? parsedUser.kelas_id ?? '';
-        const initialJenjang = resolveJenjang(initialTingkat, parsedUser.jenjang);
+        const initialTingkat =
+          parsedUser.tingkat_kelas ?? parsedUser.kelas_id ?? '';
+        const initialJenjang = resolveJenjang(
+          initialTingkat,
+          parsedUser.jenjang
+        );
 
         setUser({
           ...parsedUser,
           tingkat_kelas: initialTingkat || parsedUser.tingkat_kelas || '',
-          jenjang: parsedUser.jenjang || initialJenjang,
+          jenjang: initialJenjang,
         });
 
         const queryParams = new URLSearchParams();
@@ -128,7 +201,10 @@ export default function DashboardPage() {
         }
         queryParams.set('jenjang', initialJenjang);
 
-        const res = await fetch(`/api/exams?${queryParams.toString()}`);
+        const res = await fetch(
+          `${API_BASE_URL}/api/exams?${queryParams.toString()}`,
+          { cache: 'no-store' }
+        );
         const data = await res.json();
 
         const resolvedTingkat =
@@ -144,7 +220,7 @@ export default function DashboardPage() {
           ...parsedUser,
           nama: data?.user?.nama || parsedUser.nama,
           tingkat_kelas: resolvedTingkat || parsedUser.tingkat_kelas || '',
-          jenjang: data?.user?.jenjang || activeJenjang,
+          jenjang: activeJenjang,
           sekolah: data?.user?.sekolah || parsedUser.sekolah,
         };
         setUser(updatedUser);
@@ -153,20 +229,17 @@ export default function DashboardPage() {
         const rawExams: ExamPackage[] = Array.isArray(data?.exams)
           ? data.exams
           : Array.isArray(data?.data)
-          ? data.data
-          : [];
+            ? data.data
+            : [];
 
-        const filteredExams = filterExamsByJenjang(rawExams, activeJenjang);
-
-        if (res.ok && data?.success && filteredExams.length > 0) {
-          setExamList(filteredExams);
-        } else {
-          setExamList(getFallbackExamsByJenjang(activeJenjang));
-        }
+        setExamList(normalizeTwoMapelExams(rawExams, activeJenjang));
       } catch (err) {
         console.error('Gagal memuat dashboard:', err);
-        const fallbackJenjang = resolveJenjang(user?.tingkat_kelas ?? user?.kelas_id, user?.jenjang);
-        setExamList(getFallbackExamsByJenjang(fallbackJenjang));
+        const fallbackJenjang = resolveJenjang(
+          user?.tingkat_kelas ?? user?.kelas_id,
+          user?.jenjang
+        );
+        setExamList(getExamsByJenjang(fallbackJenjang));
       } finally {
         setLoading(false);
       }
@@ -175,14 +248,16 @@ export default function DashboardPage() {
     fetchData();
   }, [router]);
 
-  const handleMulaiUjian = (examId: number | string) => {
-    router.push(`/exam?exam_id=${examId}`);
+  const handleMulaiUjian = (examId: string) => {
+    router.push(`/exam?exam_id=${encodeURIComponent(examId)}`);
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="font-bold text-emerald-600 animate-pulse text-lg">Memuat Dashboard...</p>
+        <p className="font-bold text-emerald-600 animate-pulse text-lg">
+          Memuat Dashboard...
+        </p>
       </div>
     );
   }
@@ -196,16 +271,23 @@ export default function DashboardPage() {
               RB
             </div>
             <div>
-              <h1 className="font-extrabold text-blue-900 leading-tight">CBT RUANG BELAJAR</h1>
-              <p className="text-xs text-slate-500 font-medium">Portal Ujian & Simulasi Online</p>
+              <h1 className="font-extrabold text-blue-900 leading-tight">
+                CBT RUANG BELAJAR
+              </h1>
+              <p className="text-xs text-slate-500 font-medium">
+                Portal Ujian &amp; Simulasi Online (B. Indo &amp; MTK)
+              </p>
             </div>
           </div>
 
           {user && (
             <div className="text-right">
-              <span className="block font-bold text-slate-700 text-sm">{user.nama}</span>
+              <span className="block font-bold text-slate-700 text-sm">
+                {user.nama}
+              </span>
               <span className="text-xs text-slate-500">
-                {user.sekolah || 'Siswa'} {user.tingkat_kelas ? `(Kelas ${user.tingkat_kelas})` : ''}
+                {user.sekolah || 'Siswa'}{' '}
+                {user.tingkat_kelas ? `(Kelas ${user.tingkat_kelas})` : ''}
               </span>
             </div>
           )}
@@ -219,10 +301,17 @@ export default function DashboardPage() {
               Computer Based Test {user?.jenjang ? `(${user.jenjang})` : ''}
             </span>
             <h2 className="text-3xl font-extrabold mb-2">
-              Halo, <span className="text-yellow-300">{user?.nama || 'Siswa'}!</span> 👋
+              Halo,{' '}
+              <span className="text-yellow-300">
+                {user?.nama || 'Siswa'}!
+              </span>{' '}
+              👋
             </h2>
             <p className="text-blue-100 max-w-xl text-sm leading-relaxed">
-              Selamat datang di sistem latihan ujian. Silakan pilih paket mata pelajaran sesuai jenjang kelas kamu di bawah ini (90 Menit • 50 Soal).
+              Pilih mata pelajaran <strong>Bahasa Indonesia</strong> (50 soal)
+              atau <strong>Matematika</strong> (30 soal) sesuai jenjang{' '}
+              <strong>{user?.jenjang || 'SD / SMP / SMA-SMK'}</strong> kamu di
+              bawah ini.
             </p>
           </div>
 
@@ -243,12 +332,17 @@ export default function DashboardPage() {
 
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h3 className="text-xl font-bold text-slate-800">Daftar Paket Soal Tersedia</h3>
-            <p className="text-xs text-slate-500">Pilihlah salah satu paket di bawah untuk memulai sesi pengerjaan.</p>
+            <h3 className="text-xl font-bold text-slate-800">
+              Daftar Paket Soal Tersedia ({user?.jenjang || 'SD / SMP / SMA-SMK'})
+            </h3>
+            <p className="text-xs text-slate-500">
+              Tersedia 2 mata pelajaran: Bahasa Indonesia (50 soal) dan
+              Matematika (30 soal).
+            </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {examList.map((exam) => (
             <div
               key={exam.id}
@@ -257,7 +351,7 @@ export default function DashboardPage() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-100 text-blue-700">
-                    {exam.mapel}
+                    {exam.jenjang} • {exam.mapel}
                   </span>
                   <span className="text-xs text-slate-500 font-semibold flex items-center space-x-1">
                     <span>⏱️</span> <span>{exam.durasi || 90} Menit</span>
@@ -273,7 +367,8 @@ export default function DashboardPage() {
                       {exam.judul_ujian || exam.judul}
                     </h4>
                     <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                      {exam.deskripsi || 'Simulasi Ujian Berbasis Komputer (50 Soal)'}
+                      {exam.deskripsi ||
+                        `Simulasi Ujian (${exam.target_soal || 50} Soal)`}
                     </p>
                   </div>
                 </div>
@@ -281,12 +376,23 @@ export default function DashboardPage() {
 
               <div className="pt-4 border-t border-slate-100 mt-4">
                 <button
+                  type="button"
                   onClick={() => handleMulaiUjian(exam.id)}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-2xl transition duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                 >
                   <span>Mulai Kerjakan</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M14 5l7 7m0 0l-7 7m7-7H3"
+                    />
                   </svg>
                 </button>
               </div>
