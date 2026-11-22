@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 interface UserRecord {
   id: number;
@@ -25,7 +24,6 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const router = useRouter();
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -50,27 +48,8 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-
-    if (!storedUser) {
-      router.push('/');
-      return;
-    }
-
-    try {
-      const user = JSON.parse(storedUser);
-      if (user.role !== 'admin') {
-        alert('Akses khusus Admin!');
-        router.push('/dashboard');
-        return;
-      }
-    } catch {
-      router.push('/');
-      return;
-    }
-
     fetchUsers();
-  }, [router, fetchUsers]);
+  }, [fetchUsers]);
 
   const handleDelete = async (id: number, nama: string) => {
     if (!confirm(`Apakah kamu yakin ingin menghapus user "${nama}"?`)) {
@@ -120,7 +99,7 @@ export default function AdminUsersPage() {
               Manajemen Pengguna (Users)
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              Halaman Khusus Admin - Kelola &amp; Bersihkan Akun Terdaftar
+              Kelola &amp; Bersihkan Akun Terdaftar
             </p>
           </div>
           <div className="flex items-center gap-2">
