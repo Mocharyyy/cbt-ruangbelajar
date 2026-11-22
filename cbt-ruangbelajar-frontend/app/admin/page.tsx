@@ -5,7 +5,6 @@ export const fetchCache = 'force-no-store';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 interface ExamCardConfig {
   exam_id: string;
@@ -65,33 +64,9 @@ const API_BASE_URL = (
 ).replace(/\/+$/, '');
 
 export default function AdminExamCardsPage() {
-  const router = useRouter();
-  const [isAuthorized, setIsAuthorized] = useState(false);
   const [countsByExam, setCountsByExam] = useState<Record<string, number>>({});
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-
-  useEffect(() => {
-    try {
-      const storedUser =
-        localStorage.getItem('user') || localStorage.getItem('studentUser');
-      if (!storedUser) {
-        router.replace('/');
-        return;
-      }
-
-      const user = JSON.parse(storedUser);
-      if (user?.role !== 'admin') {
-        alert('Akses khusus Admin!');
-        router.replace('/dashboard');
-        return;
-      }
-
-      setIsAuthorized(true);
-    } catch {
-      router.replace('/');
-    }
-  }, [router]);
 
   const fetchAllCardCounts = useCallback(async () => {
     try {
@@ -133,20 +108,8 @@ export default function AdminExamCardsPage() {
   }, []);
 
   useEffect(() => {
-    if (isAuthorized) {
-      fetchAllCardCounts();
-    }
-  }, [isAuthorized, fetchAllCardCounts]);
-
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
-        <p className="text-sm font-bold text-slate-600">
-          Memverifikasi akses Admin...
-        </p>
-      </div>
-    );
-  }
+    fetchAllCardCounts();
+  }, [fetchAllCardCounts]);
 
   return (
     <div className="min-h-screen bg-slate-100 p-6 md:p-10 font-sans text-slate-800">
