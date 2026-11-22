@@ -28,7 +28,15 @@ interface QuestionFormState {
 
 const DEFAULT_TF_KEY = 'B,B,B,B';
 
-function compressImageToDataUrl(file: File, maxWidth = 900, quality = 0.8): Promise<string> {
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
+).replace(/\/+$/, '');
+
+function compressImageToDataUrl(
+  file: File,
+  maxWidth = 900,
+  quality = 0.8
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -57,7 +65,7 @@ function compressImageToDataUrl(file: File, maxWidth = 900, quality = 0.8): Prom
 function AddEditQuestionContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const examId = searchParams.get('exam_id') || '1';
+  const examId = searchParams.get('exam_id') || 'sd_bindo';
   const editId = searchParams.get('edit_id');
 
   const [formData, setFormData] = useState<QuestionFormState>({
@@ -88,12 +96,13 @@ function AddEditQuestionContent() {
     if (!editId) return;
 
     setIsFetching(true);
-    fetch(`/api/questions?id=${encodeURIComponent(editId)}`, {
+    fetch(`${API_BASE_URL}/api/questions?id=${encodeURIComponent(editId)}`, {
       cache: 'no-store',
     })
       .then((res) => res.json())
       .then((data) => {
-        const q = data.data || (Array.isArray(data.questions) ? data.questions[0] : null);
+        const q =
+          data.data || (Array.isArray(data.questions) ? data.questions[0] : null);
         if (q) {
           const loadedType: QuestionType =
             q.tipe_soal === 'multiple' || q.tipe_soal === 'true_false'
@@ -115,7 +124,8 @@ function AddEditQuestionContent() {
             opsi_d_text: q.opsi_d_text || q.opsi_d || '',
             opsi_d_img: q.opsi_d_img || '',
             kunci_jawaban:
-              q.kunci_jawaban || (loadedType === 'true_false' ? DEFAULT_TF_KEY : 'A'),
+              q.kunci_jawaban ||
+              (loadedType === 'true_false' ? DEFAULT_TF_KEY : 'A'),
           });
         }
       })
@@ -136,7 +146,9 @@ function AddEditQuestionContent() {
           .find((s) => ['A', 'B', 'C', 'D'].includes(s));
         nextKey = firstValid || 'A';
       } else if (nextType === 'true_false') {
-        const parts = prev.kunci_jawaban.split(',').map((s) => s.trim().toUpperCase());
+        const parts = prev.kunci_jawaban
+          .split(',')
+          .map((s) => s.trim().toUpperCase());
         const isValidTF =
           parts.length === 4 && parts.every((p) => p === 'B' || p === 'S');
         nextKey = isValidTF ? parts.join(',') : DEFAULT_TF_KEY;
@@ -176,11 +188,12 @@ function AddEditQuestionContent() {
     setLoading(true);
 
     try {
-      const resolvedExamId = Number(formData.exam_id || examId) || Number(examId) || 1;
+      const resolvedExamId = formData.exam_id || examId;
 
       const finalPayload = {
         ...formData,
         exam_id: resolvedExamId,
+        pertanyaan: formData.teks_sebelum_gambar || '',
         soal: formData.teks_sebelum_gambar || '',
         image_url: formData.gambar_soal || '',
         teks_lanjutan: formData.teks_sesudah_gambar || '',
@@ -189,11 +202,12 @@ function AddEditQuestionContent() {
         opsi_b: formData.opsi_b_text || '',
         opsi_c: formData.opsi_c_text || '',
         opsi_d: formData.opsi_d_text || '',
+        jawaban_benar: formData.kunci_jawaban,
       };
 
       const endpoint = editId
-        ? `/api/questions?id=${encodeURIComponent(editId)}`
-        : '/api/questions';
+        ? `${API_BASE_URL}/api/questions?id=${encodeURIComponent(editId)}`
+        : `${API_BASE_URL}/api/questions`;
       const method = editId ? 'PUT' : 'POST';
 
       const res = await fetch(endpoint, {
@@ -210,16 +224,19 @@ function AddEditQuestionContent() {
         throw new Error('Respons server tidak valid saat menyimpan soal');
       }
 
-      if (res.ok && data.success) {
+      if (res.ok && data.success !== false) {
         alert(
           editId
             ? 'Soal berhasil diperbarui!'
             : 'Soal berhasil disimpan dan langsung masuk ke ujian siswa!'
         );
-        router.push(`/admin/questions?exam_id=${resolvedExamId}`);
+        router.push('/admin');
         router.refresh();
       } else {
-        alert('Gagal menyimpan soal: ' + (data.message || data.error || 'Kesalahan server'));
+        alert(
+          'Gagal menyimpan soal: ' +
+            (data.message || data.error || 'Kesalahan server')
+        );
       }
     } catch (err) {
       console.error(err);
@@ -245,7 +262,7 @@ function AddEditQuestionContent() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <Link
-            href={`/admin/questions?exam_id=${examId}`}
+            href="/admin"
             className="text-sm font-bold text-blue-600 hover:text-blue-800 transition"
           >
             ← Kembali ke Daftar Soal
@@ -270,11 +287,15 @@ function AddEditQuestionContent() {
                 onChange={(e) => handleTypeChange(e.target.value as QuestionType)}
                 className="w-full px-4 py-2.5 border rounded-xl font-semibold text-sm bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
               >
-                <option value="single">Single Choice (Pilihan Ganda 1 Jawaban)</option>
+                <option value="single">
+                  Single Choice (Pilihan Ganda 1 Jawaban)
+                </option>
                 <option value="multiple">
                   Multiple Choice (Pilihan Ganda Kompleks / Lebih dari 1 Jawaban)
                 </option>
-                <option value="true_false">Tabel Benar / Salah (True / False)</option>
+                <option value="true_false">
+                  Tabel Benar / Salah (True / False)
+                </option>
               </select>
             </div>
 
@@ -286,7 +307,10 @@ function AddEditQuestionContent() {
                 rows={4}
                 value={formData.teks_sebelum_gambar}
                 onChange={(e) =>
-                  setFormData({ ...formData, teks_sebelum_gambar: e.target.value })
+                  setFormData({
+                    ...formData,
+                    teks_sebelum_gambar: e.target.value,
+                  })
                 }
                 className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm whitespace-pre-wrap"
                 placeholder="Tuliskan teks soal di sini..."
@@ -335,7 +359,10 @@ function AddEditQuestionContent() {
                 rows={3}
                 value={formData.teks_sesudah_gambar}
                 onChange={(e) =>
-                  setFormData({ ...formData, teks_sesudah_gambar: e.target.value })
+                  setFormData({
+                    ...formData,
+                    teks_sesudah_gambar: e.target.value,
+                  })
                 }
                 className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm whitespace-pre-wrap"
                 placeholder="Keterangan atau kelanjutan teks di bawah gambar..."
@@ -390,7 +417,10 @@ function AddEditQuestionContent() {
                           placeholder={`Jawaban teks ${opt.toUpperCase()}...`}
                           value={formData[keyText]}
                           onChange={(e) =>
-                            setFormData({ ...formData, [keyText]: e.target.value })
+                            setFormData({
+                              ...formData,
+                              [keyText]: e.target.value,
+                            })
                           }
                           className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
                         />
