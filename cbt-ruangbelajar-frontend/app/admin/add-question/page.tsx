@@ -3,11 +3,38 @@
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 type QuestionType = 'single' | 'multiple' | 'true_false';
+
+interface QuestionItem {
+  id: number | string;
+  exam_id: string | number;
+  tipe_soal?: QuestionType | string;
+  teks_sebelum_gambar?: string;
+  soal?: string;
+  pertanyaan?: string;
+  gambar_soal?: string;
+  image_url?: string;
+  teks_sesudah_gambar?: string;
+  teks_lanjutan?: string;
+  opsi_a_text?: string;
+  opsi_a?: string;
+  opsi_a_img?: string;
+  opsi_b_text?: string;
+  opsi_b?: string;
+  opsi_b_img?: string;
+  opsi_c_text?: string;
+  opsi_c?: string;
+  opsi_c_img?: string;
+  opsi_d_text?: string;
+  opsi_d?: string;
+  opsi_d_img?: string;
+  kunci_jawaban?: string;
+  jawaban_benar?: string;
+}
 
 interface QuestionFormState {
   exam_id: string;
@@ -31,6 +58,25 @@ const DEFAULT_TF_KEY = 'B,B,B,B';
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
 ).replace(/\/+$/, '');
+
+function createEmptyForm(examId: string): QuestionFormState {
+  return {
+    exam_id: examId,
+    tipe_soal: 'single',
+    teks_sebelum_gambar: '',
+    gambar_soal: '',
+    teks_sesudah_gambar: '',
+    opsi_a_text: '',
+    opsi_a_img: '',
+    opsi_b_text: '',
+    opsi_b_img: '',
+    opsi_c_text: '',
+    opsi_c_img: '',
+    opsi_d_text: '',
+    opsi_d_img: '',
+    kunci_jawaban: 'A',
+  };
+}
 
 function compressImageToDataUrl(
   file: File,
@@ -64,79 +110,109 @@ function compressImageToDataUrl(
 
 function AddEditQuestionContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const examId = searchParams.get('exam_id') || 'sd_bindo';
-  const editId = searchParams.get('edit_id');
 
-  const [formData, setFormData] = useState<QuestionFormState>({
-    exam_id: examId,
-    tipe_soal: 'single',
-    teks_sebelum_gambar: '',
-    gambar_soal: '',
-    teks_sesudah_gambar: '',
-    opsi_a_text: '',
-    opsi_a_img: '',
-    opsi_b_text: '',
-    opsi_b_img: '',
-    opsi_c_text: '',
-    opsi_c_img: '',
-    opsi_d_text: '',
-    opsi_d_img: '',
-    kunci_jawaban: 'A',
-  });
-
+  const [editingId, setEditingId] = useState<string | number | null>(null);
+  const [formData, setFormData] = useState<QuestionFormState>(() =>
+    createEmptyForm(examId)
+  );
+  const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
 
   useEffect(() => {
-    setFormData((prev) => ({ ...prev, exam_id: examId }));
+    setEditingId(null);
+    setFormData(createEmptyForm(examId));
+  }, [examId]);
+
+  const fetchQuestions = useCallback(async () => {
+    try {
+      setLoadingList(true);
+      const res = await fetch(
+        `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(examId)}`,
+        { cache: 'no-store' }
+      );
+      const data = await res.json();
+      const list: QuestionItem[] = Array.isArray(data)
+        ? data
+        : data.questions || data.data || [];
+      setQuestions(list);
+    } catch (err) {
+      console.error('Gagal memuat daftar soal:', err);
+    } finally {
+      setLoadingList(false);
+    }
   }, [examId]);
 
   useEffect(() => {
-    if (!editId) return;
+    fetchQuestions();
+  }, [fetchQuestions]);
 
-    setIsFetching(true);
-    fetch(`${API_BASE_URL}/api/admin/questions/${encodeURIComponent(editId)}`, {
-      cache: 'no-store',
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        const q =
-          data.data ||
-          data.question ||
-          (Array.isArray(data.questions) ? data.questions[0] : null);
-        if (q) {
-          const loadedType: QuestionType =
-            q.tipe_soal === 'multiple' || q.tipe_soal === 'true_false'
-              ? q.tipe_soal
-              : 'single';
+  const handleStartEdit = (q: QuestionItem) => {
+    const loadedType: QuestionType =
+      q.tipe_soal === 'multiple' || q.tipe_soal === 'true_false'
+        ? q.tipe_soal
+        : 'single';
 
-          setFormData({
-            exam_id: String(q.exam_id || examId),
-            tipe_soal: loadedType,
-            teks_sebelum_gambar: q.teks_sebelum_gambar || q.soal || '',
-            gambar_soal: q.gambar_soal || q.image_url || '',
-            teks_sesudah_gambar: q.teks_sesudah_gambar || q.teks_lanjutan || '',
-            opsi_a_text: q.opsi_a_text || q.opsi_a || '',
-            opsi_a_img: q.opsi_a_img || '',
-            opsi_b_text: q.opsi_b_text || q.opsi_b || '',
-            opsi_b_img: q.opsi_b_img || '',
-            opsi_c_text: q.opsi_c_text || q.opsi_c || '',
-            opsi_c_img: q.opsi_c_img || '',
-            opsi_d_text: q.opsi_d_text || q.opsi_d || '',
-            opsi_d_img: q.opsi_d_img || '',
-            kunci_jawaban:
-              q.kunci_jawaban ||
-              (loadedType === 'true_false' ? DEFAULT_TF_KEY : 'A'),
-          });
+    setEditingId(q.id);
+    setFormData({
+      exam_id: String(q.exam_id || examId),
+      tipe_soal: loadedType,
+      teks_sebelum_gambar:
+        q.teks_sebelum_gambar || q.soal || q.pertanyaan || '',
+      gambar_soal: q.gambar_soal || q.image_url || '',
+      teks_sesudah_gambar: q.teks_sesudah_gambar || q.teks_lanjutan || '',
+      opsi_a_text: q.opsi_a_text || q.opsi_a || '',
+      opsi_a_img: q.opsi_a_img || '',
+      opsi_b_text: q.opsi_b_text || q.opsi_b || '',
+      opsi_b_img: q.opsi_b_img || '',
+      opsi_c_text: q.opsi_c_text || q.opsi_c || '',
+      opsi_c_img: q.opsi_c_img || '',
+      opsi_d_text: q.opsi_d_text || q.opsi_d || '',
+      opsi_d_img: q.opsi_d_img || '',
+      kunci_jawaban:
+        q.kunci_jawaban ||
+        q.jawaban_benar ||
+        (loadedType === 'true_false' ? DEFAULT_TF_KEY : 'A'),
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setFormData(createEmptyForm(examId));
+  };
+
+  const handleDeleteQuestion = async (id: string | number) => {
+    if (!confirm('Apakah kamu yakin ingin menghapus soal ini?')) return;
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/admin/questions/${encodeURIComponent(String(id))}`,
+        { method: 'DELETE' }
+      );
+      const rawText = await res.text();
+      let data: { success?: boolean; message?: string } = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = {};
+      }
+
+      if (res.ok && data.success !== false) {
+        if (editingId === id) {
+          handleCancelEdit();
         }
-      })
-      .catch((err) => {
-        console.error('Gagal memuat data soal:', err);
-        alert('Terjadi kesalahan saat mengambil data soal lama.');
-      })
-      .finally(() => setIsFetching(false));
-  }, [editId, examId]);
+        alert('Soal berhasil dihapus!');
+        await fetchQuestions();
+      } else {
+        alert('Gagal menghapus soal: ' + (data.message || 'Kesalahan server'));
+      }
+    } catch (err) {
+      console.error('Gagal menghapus soal:', err);
+      alert('Terjadi kesalahan saat menghapus soal.');
+    }
+  };
 
   const handleTypeChange = (nextType: QuestionType) => {
     setFormData((prev) => {
@@ -207,10 +283,11 @@ function AddEditQuestionContent() {
         jawaban_benar: formData.kunci_jawaban,
       };
 
-      const endpoint = editId
-        ? `${API_BASE_URL}/api/admin/questions/${encodeURIComponent(editId)}`
+      const isEditing = editingId !== null;
+      const endpoint = isEditing
+        ? `${API_BASE_URL}/api/admin/questions/${encodeURIComponent(String(editingId))}`
         : `${API_BASE_URL}/api/admin/questions`;
-      const method = editId ? 'PUT' : 'POST';
+      const method = isEditing ? 'PUT' : 'POST';
 
       const res = await fetch(endpoint, {
         method,
@@ -228,12 +305,13 @@ function AddEditQuestionContent() {
 
       if (res.ok && data.success !== false) {
         alert(
-          editId
+          isEditing
             ? 'Soal berhasil diperbarui!'
-            : 'Soal berhasil disimpan dan langsung masuk ke ujian siswa!'
+            : 'Soal berhasil disimpan dan langsung masuk ke daftar soal!'
         );
-        router.push('/admin');
-        router.refresh();
+        setEditingId(null);
+        setFormData(createEmptyForm(resolvedExamId));
+        await fetchQuestions();
       } else {
         alert(
           'Gagal menyimpan soal: ' +
@@ -248,36 +326,37 @@ function AddEditQuestionContent() {
     }
   };
 
-  if (isFetching) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-slate-600 font-bold text-sm">Memuat data soal...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans space-y-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <Link
             href="/admin"
             className="text-sm font-bold text-blue-600 hover:text-blue-800 transition"
           >
-            ← Kembali ke Daftar Soal
+            ← Kembali ke Daftar Paket Ujian
           </Link>
           <span className="text-xs font-bold bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
             Exam ID: {examId}
           </span>
         </div>
 
+        {/* Form Tambah / Edit Soal */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xl p-8">
-          <h1 className="text-2xl font-black text-slate-800 mb-6 pb-4 border-b">
-            {editId ? 'Edit Soal Ujian' : 'Input Soal Ujian Baru'}
-          </h1>
+          <div className="flex items-center justify-between gap-4 mb-6 pb-4 border-b">
+            <h1 className="text-2xl font-black text-slate-800">
+              {editingId ? `Edit Soal #${editingId}` : 'Input Soal Ujian Baru'}
+            </h1>
+            {editingId && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg"
+              >
+                Batal Edit
+              </button>
+            )}
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -572,9 +651,96 @@ function AddEditQuestionContent() {
               disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition duration-200 text-sm disabled:opacity-50"
             >
-              {loading ? 'Menyimpan Soal...' : 'Simpan Soal Ujian'}
+              {loading
+                ? 'Menyimpan Soal...'
+                : editingId
+                  ? 'Simpan Perubahan Soal'
+                  : 'Simpan Soal Ujian'}
             </button>
           </form>
+        </div>
+
+        {/* Daftar Soal (Read, Edit, Delete) */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-xl p-8 mt-8">
+          <div className="flex items-center justify-between gap-4 mb-6 pb-4 border-b">
+            <div>
+              <h2 className="text-xl font-black text-slate-800">
+                Daftar Soal ({questions.length})
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Paket Exam ID: <span className="font-mono">{examId}</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchQuestions}
+              className="text-xs font-bold text-blue-600 hover:underline"
+            >
+              ↻ Refresh Daftar
+            </button>
+          </div>
+
+          {loadingList ? (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Memuat daftar soal...
+            </div>
+          ) : questions.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Belum ada soal untuk Exam ID <span className="font-mono">{examId}</span>.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {questions.map((q, idx) => {
+                const teks =
+                  q.teks_sebelum_gambar || q.soal || q.pertanyaan || '-';
+                const kunci = q.kunci_jawaban || q.jawaban_benar || '-';
+                const a = q.opsi_a_text || q.opsi_a;
+                const b = q.opsi_b_text || q.opsi_b;
+                const c = q.opsi_c_text || q.opsi_c;
+                const d = q.opsi_d_text || q.opsi_d;
+
+                return (
+                  <div
+                    key={String(q.id)}
+                    className="py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-bold text-slate-400">
+                        Soal #{idx + 1} • ID: {q.id} • Kunci:{' '}
+                        <span className="text-emerald-700">{kunci}</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900 whitespace-pre-line">
+                        {teks}
+                      </p>
+                      <div className="text-xs text-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-1 pt-1">
+                        {a && <div>A. {a}</div>}
+                        {b && <div>B. {b}</div>}
+                        {c && <div>C. {c}</div>}
+                        {d && <div>D. {d}</div>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(q)}
+                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                      >
+                        🗑️ Hapus
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
