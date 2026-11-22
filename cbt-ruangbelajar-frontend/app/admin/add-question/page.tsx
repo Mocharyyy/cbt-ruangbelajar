@@ -96,13 +96,15 @@ function AddEditQuestionContent() {
     if (!editId) return;
 
     setIsFetching(true);
-    fetch(`${API_BASE_URL}/api/questions?id=${encodeURIComponent(editId)}`, {
+    fetch(`${API_BASE_URL}/api/admin/questions/${encodeURIComponent(editId)}`, {
       cache: 'no-store',
     })
       .then((res) => res.json())
       .then((data) => {
         const q =
-          data.data || (Array.isArray(data.questions) ? data.questions[0] : null);
+          data.data ||
+          data.question ||
+          (Array.isArray(data.questions) ? data.questions[0] : null);
         if (q) {
           const loadedType: QuestionType =
             q.tipe_soal === 'multiple' || q.tipe_soal === 'true_false'
@@ -206,8 +208,8 @@ function AddEditQuestionContent() {
       };
 
       const endpoint = editId
-        ? `${API_BASE_URL}/api/questions?id=${encodeURIComponent(editId)}`
-        : `${API_BASE_URL}/api/questions`;
+        ? `${API_BASE_URL}/api/admin/questions/${encodeURIComponent(editId)}`
+        : `${API_BASE_URL}/api/admin/questions`;
       const method = editId ? 'PUT' : 'POST';
 
       const res = await fetch(endpoint, {
