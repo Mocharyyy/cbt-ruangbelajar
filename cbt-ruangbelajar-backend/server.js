@@ -9,7 +9,8 @@ const cloudinary = require('cloudinary').v2;
 // MIDDLEWARE CONFIGURATION
 // ==========================================
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors());
 
 // ==========================================
@@ -56,6 +57,21 @@ async function ensureColumnExists(tableName, columnName, definition) {
     await db.query(
       `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
     );
+  }
+}
+
+async function ensureColumnType(tableName, columnName, columnType) {
+  const [rows] = await db.query(
+    `SHOW COLUMNS FROM \`${tableName}\` LIKE ?`,
+    [columnName]
+  );
+  if (rows.length > 0) {
+    const currentType = String(rows[0].Type || '').toLowerCase();
+    if (!currentType.includes(columnType.toLowerCase())) {
+      await db.query(
+        `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${columnType} NULL`
+      );
+    }
   }
 }
 
@@ -108,27 +124,33 @@ async function initializeDatabase() {
         exam_id INT NOT NULL,
         tipe_soal VARCHAR(50) DEFAULT 'single',
         soal TEXT,
-        image_url TEXT,
+        image_url LONGTEXT,
         teks_sesudah_gambar TEXT,
         opsi_a TEXT,
         opsi_b TEXT,
         opsi_c TEXT,
         opsi_d TEXT,
         opsi_e TEXT,
-        opsi_a_img TEXT,
-        opsi_b_img TEXT,
-        opsi_c_img TEXT,
-        opsi_d_img TEXT,
+        opsi_a_img LONGTEXT,
+        opsi_b_img LONGTEXT,
+        opsi_c_img LONGTEXT,
+        opsi_d_img LONGTEXT,
         kunci_jawaban VARCHAR(100),
         INDEX idx_questions_exam (exam_id)
       )
     `);
 
     await ensureColumnExists('questions', 'teks_sesudah_gambar', 'TEXT NULL AFTER image_url');
-    await ensureColumnExists('questions', 'opsi_a_img', 'TEXT NULL AFTER opsi_e');
-    await ensureColumnExists('questions', 'opsi_b_img', 'TEXT NULL AFTER opsi_a_img');
-    await ensureColumnExists('questions', 'opsi_c_img', 'TEXT NULL AFTER opsi_b_img');
-    await ensureColumnExists('questions', 'opsi_d_img', 'TEXT NULL AFTER opsi_c_img');
+    await ensureColumnExists('questions', 'opsi_a_img', 'LONGTEXT NULL AFTER opsi_e');
+    await ensureColumnExists('questions', 'opsi_b_img', 'LONGTEXT NULL AFTER opsi_a_img');
+    await ensureColumnExists('questions', 'opsi_c_img', 'LONGTEXT NULL AFTER opsi_b_img');
+    await ensureColumnExists('questions', 'opsi_d_img', 'LONGTEXT NULL AFTER opsi_c_img');
+
+    await ensureColumnType('questions', 'image_url', 'LONGTEXT');
+    await ensureColumnType('questions', 'opsi_a_img', 'LONGTEXT');
+    await ensureColumnType('questions', 'opsi_b_img', 'LONGTEXT');
+    await ensureColumnType('questions', 'opsi_c_img', 'LONGTEXT');
+    await ensureColumnType('questions', 'opsi_d_img', 'LONGTEXT');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS student_exams (
@@ -941,25 +963,44 @@ app.get('/api/exams/:examId/questions', async (req, res) => {
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const currentUserId = req.query.user_id;
+    const rawJenjang = String(req.query.jenjang || '').trim();
+    const jenjangFilter = rawJenjang ? resolveJenjangLabel(null, rawJenjang) : '';
+
+    let whereClause = "WHERE se.status = 'completed'";
+    const params = [];
+
+    if (jenjangFilter) {
+      whereClause += ' AND e.jenjang = ?';
+      params.push(jenjangFilter);
+    }
 
     const topQuery = `
       SELECT
         u.id AS user_id,
         u.nama AS nama_siswa,
+        u.asal_sekolah,
+        COALESCE(NULLIF(e.jenjang, ''), '') AS jenjang,
         SUM(COALESCE(se.score, se.skor_akhir, 0)) AS score,
-        0 AS duration,
+        SUM(COALESCE(se.duration, 0)) AS duration,
         MAX(COALESCE(se.status_bayes, 'Selesai')) AS status_bayes,
         COUNT(se.id) AS total_ujian_dikerjakan
       FROM student_exams se
       JOIN users u ON se.user_id = u.id
-      WHERE se.status = 'completed'
-      GROUP BY u.id, u.nama
-      ORDER BY score DESC
+      LEFT JOIN exams e ON se.exam_id = e.id
+      ${whereClause}
+      GROUP BY u.id, u.nama, u.asal_sekolah, e.jenjang
+      ORDER BY score DESC, duration ASC
     `;
-    const [allRankings] = await db.query(topQuery);
+    const [allRankings] = await db.query(topQuery, params);
     const leaderboardTop10 = allRankings.slice(0, 10);
 
-    const [totalUsersRows] = await db.query(`SELECT COUNT(DISTINCT user_id) AS total FROM student_exams WHERE status = 'completed'`);
+    const [totalUsersRows] = await db.query(
+      `SELECT COUNT(DISTINCT se.user_id) AS total
+       FROM student_exams se
+       LEFT JOIN exams e ON se.exam_id = e.id
+       ${whereClause}`,
+      params
+    );
     const totalSiswaSelesai = totalUsersRows[0]?.total || allRankings.length;
 
     let userRankInfo = null;
@@ -975,6 +1016,7 @@ app.get('/api/leaderboard', async (req, res) => {
 
     return res.json({
       success: true,
+      jenjang: jenjangFilter || 'ALL',
       leaderboard: leaderboardTop10,
       userRank: userRankInfo,
       totalSiswa: totalSiswaSelesai
