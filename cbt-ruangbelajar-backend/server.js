@@ -90,11 +90,15 @@ async function initializeDatabase() {
         kelas_id VARCHAR(50),
         exam_passcode VARCHAR(50),
         role VARCHAR(50) DEFAULT 'siswa',
+        login_count INT NOT NULL DEFAULT 1,
+        last_login TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     await ensureColumnExists('users', 'kelas_id', 'VARCHAR(50) NULL AFTER tingkat_kelas');
+    await ensureColumnExists('users', 'login_count', 'INT NOT NULL DEFAULT 1 AFTER role');
+    await ensureColumnExists('users', 'last_login', 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP AFTER login_count');
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS mapel (
@@ -404,14 +408,16 @@ app.post('/api/student/register', async (req, res) => {
     const generatedPasscode = 'TK' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
     const query = `
-      INSERT INTO users (nama, email, asal_sekolah, tingkat_kelas, kelas_id, exam_passcode, role)
-      VALUES (?, ?, ?, ?, ?, ?, 'siswa')
+      INSERT INTO users (nama, email, asal_sekolah, tingkat_kelas, kelas_id, exam_passcode, role, login_count, last_login)
+      VALUES (?, ?, ?, ?, ?, ?, 'siswa', 1, CURRENT_TIMESTAMP)
       ON DUPLICATE KEY UPDATE
         nama = VALUES(nama),
         asal_sekolah = VALUES(asal_sekolah),
         tingkat_kelas = VALUES(tingkat_kelas),
         kelas_id = VALUES(kelas_id),
-        exam_passcode = VALUES(exam_passcode)
+        exam_passcode = VALUES(exam_passcode),
+        login_count = COALESCE(login_count, 0) + 1,
+        last_login = CURRENT_TIMESTAMP
     `;
 
     const [result] = await db.query(query, [
@@ -460,6 +466,11 @@ app.post('/api/student/verify-passcode', async (req, res) => {
     }
 
     const user = results[0];
+    await db.query(
+      'UPDATE users SET login_count = COALESCE(login_count, 0) + 1, last_login = CURRENT_TIMESTAMP WHERE id = ?',
+      [user.id]
+    );
+
     const kelasVal = user.tingkat_kelas || user.kelas_id || '';
     return res.json({
       success: true,
@@ -470,7 +481,8 @@ app.post('/api/student/verify-passcode', async (req, res) => {
         email: user.email,
         sekolah: user.asal_sekolah,
         kelas_id: kelasVal,
-        tingkat_kelas: kelasVal
+        tingkat_kelas: kelasVal,
+        login_count: Number(user.login_count || 0) + 1
       }
     });
   } catch (err) {
@@ -1036,12 +1048,32 @@ app.get('/api/leaderboard', async (req, res) => {
 app.get('/api/admin/users', async (req, res) => {
   try {
     const query = `
-      SELECT id, kelas_id, nama, email, exam_passcode, asal_sekolah, tingkat_kelas, role, created_at
+      SELECT
+        id,
+        kelas_id,
+        nama,
+        email,
+        exam_passcode,
+        asal_sekolah,
+        tingkat_kelas,
+        role,
+        COALESCE(login_count, 1) AS login_count,
+        COALESCE(last_login, created_at) AS last_login,
+        created_at
       FROM users
-      ORDER BY created_at DESC
+      ORDER BY COALESCE(last_login, created_at) DESC, id DESC
     `;
     const [rows] = await db.query(query);
-    return res.json({ success: true, users: rows });
+    const totalSiswa = rows.filter((u) => (u.role || 'siswa') !== 'admin').length;
+    const totalAdmin = rows.filter((u) => u.role === 'admin').length;
+
+    return res.json({
+      success: true,
+      users: rows,
+      totalUsers: rows.length,
+      totalSiswa,
+      totalAdmin
+    });
   } catch (error) {
     console.error('Error fetching users:', error);
     return res.status(500).json({ success: false, message: error.message });
