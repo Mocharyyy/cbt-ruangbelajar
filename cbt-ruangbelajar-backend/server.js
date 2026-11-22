@@ -412,6 +412,11 @@ function resolveJenjangLabel(rawKelas, rawJenjang) {
   return 'SD';
 }
 
+function normalizeExamIdValue(rawExamId) {
+  const cleaned = String(rawExamId ?? '').trim().toLowerCase();
+  return cleaned || 'sd_bindo';
+}
+
 function normalizeQuestionPayload(body) {
   const {
     exam_id,
@@ -451,7 +456,7 @@ function normalizeQuestionPayload(body) {
     formattedKunci = String(rawKunci).trim();
   }
 
-  const normalizedExamId = String(exam_id || 'sd_bindo').trim() || 'sd_bindo';
+  const normalizedExamId = normalizeExamIdValue(exam_id);
 
   return {
     examId: normalizedExamId,
@@ -647,10 +652,13 @@ app.post('/api/admin/questions', async (req, res) => {
       q.formattedKunci
     ]);
 
+    const [createdRows] = await db.query('SELECT * FROM questions WHERE id = ?', [result.insertId]);
+
     return res.json({
       success: true,
       id: result.insertId,
       exam_id: q.examId,
+      data: createdRows[0] || { id: result.insertId, exam_id: q.examId },
       message: 'Soal berhasil disimpan ke bank soal!'
     });
   } catch (error) {
@@ -692,7 +700,13 @@ app.put('/api/admin/questions/:id', async (req, res) => {
       id
     ]);
 
-    return res.json({ success: true, message: 'Soal berhasil diperbarui!' });
+    const [updatedRows] = await db.query('SELECT * FROM questions WHERE id = ?', [id]);
+
+    return res.json({
+      success: true,
+      data: updatedRows[0] || null,
+      message: 'Soal berhasil diperbarui!'
+    });
   } catch (error) {
     console.error('Error update question:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -744,8 +758,8 @@ app.get('/api/admin/questions', async (req, res) => {
     let params = [];
 
     if (examId) {
-      query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
-      params = [String(examId)];
+      query = 'SELECT * FROM questions WHERE LOWER(TRIM(exam_id)) = ? ORDER BY id ASC';
+      params = [normalizeExamIdValue(examId)];
     }
 
     const [rows] = await db.query(query, params);
@@ -905,10 +919,10 @@ app.post('/api/student/start-exam', async (req, res) => {
       return res.status(400).json({ success: false, message: 'user_id dan exam_id wajib diisi' });
     }
 
-    const examIdStr = String(exam_id).trim();
+    const examIdStr = normalizeExamIdValue(exam_id);
 
     const [completedExam] = await db.query(
-      `SELECT id, status FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'completed'`,
+      `SELECT id, status FROM student_exams WHERE user_id = ? AND LOWER(TRIM(exam_id)) = ? AND status = 'completed'`,
       [user_id, examIdStr]
     );
 
@@ -922,7 +936,7 @@ app.post('/api/student/start-exam', async (req, res) => {
     }
 
     const [existingExam] = await db.query(
-      `SELECT id FROM student_exams WHERE user_id = ? AND exam_id = ? AND status = 'ongoing'`,
+      `SELECT id FROM student_exams WHERE user_id = ? AND LOWER(TRIM(exam_id)) = ? AND status = 'ongoing'`,
       [user_id, examIdStr]
     );
 
@@ -1040,8 +1054,8 @@ app.get('/api/questions', async (req, res) => {
     let params = [];
 
     if (examId) {
-      query = 'SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC';
-      params = [String(examId)];
+      query = 'SELECT * FROM questions WHERE LOWER(TRIM(exam_id)) = ? ORDER BY id ASC';
+      params = [normalizeExamIdValue(examId)];
     }
 
     const [rows] = await db.query(query, params);
@@ -1054,10 +1068,10 @@ app.get('/api/questions', async (req, res) => {
 
 app.get('/api/exams/:examId/questions', async (req, res) => {
   try {
-    const examId = String(req.params.examId);
+    const examId = normalizeExamIdValue(req.params.examId);
 
-    const [questions] = await db.query('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
-    const [examInfo] = await db.query('SELECT * FROM exams WHERE id = ?', [examId]);
+    const [questions] = await db.query('SELECT * FROM questions WHERE LOWER(TRIM(exam_id)) = ? ORDER BY id ASC', [examId]);
+    const [examInfo] = await db.query('SELECT * FROM exams WHERE LOWER(TRIM(id)) = ?', [examId]);
 
     return res.json({
       success: true,
