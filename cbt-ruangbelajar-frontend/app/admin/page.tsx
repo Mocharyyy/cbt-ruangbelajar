@@ -124,7 +124,6 @@ export default function AdminExamCardsPage() {
   return (
     <div className="min-h-screen bg-slate-100 p-6 md:p-10 font-sans text-slate-800">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900">
@@ -157,14 +156,12 @@ export default function AdminExamCardsPage() {
           </div>
         </div>
 
-        {/* Error */}
         {errorMessage && (
           <div className="p-4 bg-red-100 border border-red-300 text-red-700 rounded-xl text-sm font-medium">
             ⚠️ {errorMessage}
           </div>
         )}
 
-        {/* Grid 6 Card */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {EXAM_CARDS.map((card) => {
             const currentCount = countsByExam[card.exam_id] ?? 0;
@@ -217,12 +214,12 @@ export default function AdminExamCardsPage() {
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-slate-100">
                   <Link
-                    href={`/admin/add-question?exam_id=${encodeURIComponent(card.exam_id)}`}
-                    className="w-full text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
+                    href={`/admin/questions?exam_id=${encodeURIComponent(card.exam_id)}`}
+                    className="block w-full text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
                   >
-                    + Tambah Soal
+                    Kelola Soal →
                   </Link>
                 </div>
               </div>

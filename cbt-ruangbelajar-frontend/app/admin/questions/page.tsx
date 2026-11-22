@@ -5,7 +5,7 @@ import Link from 'next/link';
 
 interface Question {
   id: number;
-  exam_id: number;
+  exam_id: string | number;
   soal: string;
   opsi_a: string;
   opsi_b: string;
@@ -22,21 +22,42 @@ interface ExamItem {
   title?: string;
 }
 
+const EXAM_META: Record<string, { title: string; target: number }> = {
+  sd_bindo: { title: 'SD - Bahasa Indonesia', target: 50 },
+  sd_mtk: { title: 'SD - Matematika', target: 30 },
+  smp_bindo: { title: 'SMP - Bahasa Indonesia', target: 50 },
+  smp_mtk: { title: 'SMP - Matematika', target: 30 },
+  sma_smk_bindo: { title: 'SMA/SMK - Bahasa Indonesia', target: 50 },
+  sma_smk_mtk: { title: 'SMA/SMK - Matematika', target: 30 },
+};
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
+).replace(/\/+$/, '');
+
 export default function AdminQuestions() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [examId, setExamId] = useState<string | null>(null);
   const [examTitle, setExamTitle] = useState<string>('Memuat...');
+  const [targetQuestions, setTargetQuestions] = useState<number>(50);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const loadQuestionsAndExam = useCallback(async (id: string) => {
     setLoading(true);
     try {
+      const preset = EXAM_META[id];
+      if (preset) {
+        setExamTitle(preset.title);
+        setTargetQuestions(preset.target);
+      }
+
       const [qRes, eRes] = await Promise.all([
-        fetch(`/api/questions?exam_id=${encodeURIComponent(id)}`, {
-          cache: 'no-store',
-        }),
-        fetch('/api/exams', {
+        fetch(
+          `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(id)}`,
+          { cache: 'no-store' }
+        ),
+        fetch(`${API_BASE_URL}/api/exams`, {
           cache: 'no-store',
         }),
       ]);
@@ -52,29 +73,34 @@ export default function AdminQuestions() {
         setQuestions([]);
       }
 
-      const eData = await eRes.json();
-      const examsList: ExamItem[] = Array.isArray(eData)
-        ? eData
-        : eData.exams || eData.data || [];
+      if (!preset) {
+        const eData = await eRes.json();
+        const examsList: ExamItem[] = Array.isArray(eData)
+          ? eData
+          : eData.exams || eData.data || [];
 
-      if (Array.isArray(examsList)) {
-        const currentExam = examsList.find(
-          (e) => String(e.id) === String(id) || String(e.exam_id) === String(id)
-        );
-        if (currentExam) {
-          setExamTitle(
-            currentExam.judul_ujian ||
-              currentExam.mapel ||
-              currentExam.title ||
-              'Ujian'
+        if (Array.isArray(examsList)) {
+          const currentExam = examsList.find(
+            (e) =>
+              String(e.id) === String(id) || String(e.exam_id) === String(id)
           );
-        } else {
-          setExamTitle('Ujian Tidak Ditemukan');
+          if (currentExam) {
+            setExamTitle(
+              currentExam.judul_ujian ||
+                currentExam.mapel ||
+                currentExam.title ||
+                'Ujian'
+            );
+          } else {
+            setExamTitle(`Paket Ujian (${id})`);
+          }
         }
       }
     } catch (err) {
       console.error('Gagal mengambil data soal/ujian:', err);
-      setExamTitle('Ujian (ID: ' + id + ')');
+      if (!EXAM_META[id]) {
+        setExamTitle('Ujian (ID: ' + id + ')');
+      }
     } finally {
       setLoading(false);
     }
@@ -99,7 +125,7 @@ export default function AdminQuestions() {
     setDeletingId(questionId);
     try {
       const res = await fetch(
-        `/api/questions?id=${encodeURIComponent(String(questionId))}`,
+        `${API_BASE_URL}/api/admin/questions/${encodeURIComponent(String(questionId))}`,
         {
           method: 'DELETE',
           cache: 'no-store',
@@ -140,7 +166,6 @@ export default function AdminQuestions() {
           ← Kembali ke Dashboard Mapel
         </Link>
 
-        {/* Header Card */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
             <div className="flex items-center space-x-3 mb-1">
@@ -154,7 +179,7 @@ export default function AdminQuestions() {
             <p className="text-sm text-gray-500">
               Total Soal Tersedia:{' '}
               <strong className="text-slate-700">
-                {questions.length} / 50 Soal
+                {questions.length} / {targetQuestions} Soal
               </strong>{' '}
               (Durasi: 90 Menit)
             </p>
@@ -170,7 +195,6 @@ export default function AdminQuestions() {
           </div>
         </div>
 
-        {/* Daftar Soal */}
         {loading ? (
           <div className="text-center py-16 text-gray-500">
             Memuat data soal...
