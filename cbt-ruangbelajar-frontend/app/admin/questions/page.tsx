@@ -1,17 +1,36 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface Question {
-  id: number;
+  id: number | string;
   exam_id: string | number;
-  soal: string;
-  opsi_a: string;
-  opsi_b: string;
-  opsi_c: string;
-  opsi_d: string;
-  kunci_jawaban: string;
+  tipe_soal?: string;
+  soal?: string;
+  pertanyaan?: string;
+  teks_sebelum_gambar?: string;
+  image_url?: string;
+  gambar_soal?: string;
+  teks_sesudah_gambar?: string;
+  teks_lanjutan?: string;
+  opsi_a?: string;
+  opsi_a_text?: string;
+  opsi_a_img?: string;
+  opsi_b?: string;
+  opsi_b_text?: string;
+  opsi_b_img?: string;
+  opsi_c?: string;
+  opsi_c_text?: string;
+  opsi_c_img?: string;
+  opsi_d?: string;
+  opsi_d_text?: string;
+  opsi_d_img?: string;
+  kunci_jawaban: unknown;
 }
 
 interface ExamItem {
@@ -35,26 +54,104 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
 ).replace(/\/+$/, '');
 
-export default function AdminQuestions() {
+function resolveAssetUrl(url?: string): string {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  if (!trimmed) return '';
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:image/') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function getQuestionMainText(q: Question): string {
+  return (
+    q.soal ||
+    q.teks_sebelum_gambar ||
+    q.pertanyaan ||
+    ''
+  ).trim();
+}
+
+function getOptionText(
+  q: Question,
+  opt: 'a' | 'b' | 'c' | 'd'
+): string {
+  const direct = q[`opsi_${opt}`];
+  const textField = q[`opsi_${opt}_text`];
+  return String(textField || direct || '').trim();
+}
+
+function getOptionImage(q: Question, opt: 'a' | 'b' | 'c' | 'd'): string {
+  return resolveAssetUrl(q[`opsi_${opt}_img`]);
+}
+
+function formatAnswerKey(key: unknown): string {
+  if (key === undefined || key === null || key === '') return '-';
+  if (Array.isArray(key)) {
+    return key.map((item) => String(item).trim()).filter(Boolean).join(', ') || '-';
+  }
+  if (typeof key === 'object') {
+    const entries = Object.entries(key as Record<string, unknown>);
+    if (entries.length === 0) return '-';
+    return entries.map(([k, v]) => `${k}: ${String(v)}`).join(', ');
+  }
+  if (typeof key === 'string') {
+    const trimmed = key.trim();
+    if (!trimmed) return '-';
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed !== trimmed) {
+        return formatAnswerKey(parsed);
+      }
+    } catch {
+      // Bukan JSON valid, tampilkan string apa adanya
+    }
+    return trimmed;
+  }
+  return String(key);
+}
+
+function formatQuestionType(tipe?: string): string {
+  const normalized = (tipe || 'single').toLowerCase();
+  if (normalized === 'multiple' || normalized === 'multiple_choice') {
+    return 'Multiple Choice';
+  }
+  if (normalized === 'true_false' || normalized === 'tf' || normalized === 'kategori') {
+    return 'Benar / Salah';
+  }
+  return 'Single Choice';
+}
+
+function AdminQuestionsContent() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get('exam_id');
+
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [examId, setExamId] = useState<string | null>(null);
   const [examTitle, setExamTitle] = useState<string>('Memuat...');
   const [targetQuestions, setTargetQuestions] = useState<number>(50);
   const [loading, setLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | string | null>(null);
 
-  const loadQuestionsAndExam = useCallback(async (id: string) => {
+  const loadQuestionsAndExam = useCallback(async (targetId: string) => {
     setLoading(true);
     try {
-      const preset = EXAM_META[id];
+      const preset = EXAM_META[targetId];
       if (preset) {
         setExamTitle(preset.title);
         setTargetQuestions(preset.target);
+      } else {
+        setTargetQuestions(50);
       }
 
       const [qRes, eRes] = await Promise.all([
         fetch(
-          `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(id)}`,
+          `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(targetId)}`,
           { cache: 'no-store' }
         ),
         fetch(`${API_BASE_URL}/api/exams`, {
@@ -63,17 +160,17 @@ export default function AdminQuestions() {
       ]);
 
       const qData = await qRes.json();
-      if (qData.success && Array.isArray(qData.questions)) {
+      if (qRes.ok && qData.success && Array.isArray(qData.questions)) {
         setQuestions(qData.questions);
-      } else if (Array.isArray(qData)) {
+      } else if (qRes.ok && Array.isArray(qData)) {
         setQuestions(qData);
-      } else if (Array.isArray(qData.data)) {
+      } else if (qRes.ok && Array.isArray(qData.data)) {
         setQuestions(qData.data);
       } else {
         setQuestions([]);
       }
 
-      if (!preset) {
+      if (!preset && eRes.ok) {
         const eData = await eRes.json();
         const examsList: ExamItem[] = Array.isArray(eData)
           ? eData
@@ -82,24 +179,25 @@ export default function AdminQuestions() {
         if (Array.isArray(examsList)) {
           const currentExam = examsList.find(
             (e) =>
-              String(e.id) === String(id) || String(e.exam_id) === String(id)
+              String(e.id) === String(targetId) ||
+              String(e.exam_id) === String(targetId)
           );
           if (currentExam) {
             setExamTitle(
               currentExam.judul_ujian ||
                 currentExam.mapel ||
                 currentExam.title ||
-                'Ujian'
+                `Paket Ujian (${targetId})`
             );
           } else {
-            setExamTitle(`Paket Ujian (${id})`);
+            setExamTitle(`Paket Ujian (${targetId})`);
           }
         }
       }
     } catch (err) {
       console.error('Gagal mengambil data soal/ujian:', err);
-      if (!EXAM_META[id]) {
-        setExamTitle('Ujian (ID: ' + id + ')');
+      if (!EXAM_META[targetId]) {
+        setExamTitle(`Ujian (ID: ${targetId})`);
       }
     } finally {
       setLoading(false);
@@ -107,19 +205,16 @@ export default function AdminQuestions() {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('exam_id');
-    setExamId(id);
-
     if (id) {
       loadQuestionsAndExam(id);
     } else {
+      setQuestions([]);
       setExamTitle('Pilih Paket Ujian');
       setLoading(false);
     }
-  }, [loadQuestionsAndExam]);
+  }, [id, loadQuestionsAndExam]);
 
-  const handleDelete = async (questionId: number) => {
+  const handleDelete = async (questionId: number | string) => {
     if (!confirm('Yakin ingin menghapus soal ini?')) return;
 
     setDeletingId(questionId);
@@ -139,8 +234,8 @@ export default function AdminQuestions() {
         data = {};
       }
 
-      if (res.ok && (data.success || data.message)) {
-        setQuestions((prev) => prev.filter((q) => q.id !== questionId));
+      if (res.ok && data.success !== false) {
+        setQuestions((prev) => prev.filter((q) => String(q.id) !== String(questionId)));
       } else {
         alert(data.message || data.error || 'Gagal menghapus soal.');
       }
@@ -152,8 +247,8 @@ export default function AdminQuestions() {
     }
   };
 
-  const addQuestionHref = examId
-    ? `/admin/add-question?exam_id=${encodeURIComponent(examId)}`
+  const addQuestionHref = id
+    ? `/admin/add-question?exam_id=${encodeURIComponent(id)}`
     : '/admin/add-question';
 
   return (
@@ -168,12 +263,12 @@ export default function AdminQuestions() {
 
         <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
-            <div className="flex items-center space-x-3 mb-1">
+            <div className="flex flex-wrap items-center gap-3 mb-1">
               <h1 className="text-2xl font-black text-slate-800">
                 Kelola Soal: {examTitle}
               </h1>
               <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">
-                EXAM ID: {examId || '-'}
+                EXAM ID: {id || '-'}
               </span>
             </div>
             <p className="text-sm text-gray-500">
@@ -213,54 +308,134 @@ export default function AdminQuestions() {
           </div>
         ) : (
           <div className="space-y-4">
-            {questions.map((q, index) => (
-              <div
-                key={q.id || index}
-                className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded">
-                      Soal No. {index + 1}
-                    </span>
-                    <span className="text-xs text-gray-400 font-medium uppercase">
-                      Kunci: {q.kunci_jawaban}
-                    </span>
-                  </div>
-                  <p className="text-slate-800 font-medium text-base mb-3 whitespace-pre-wrap">
-                    {q.soal}
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
-                    <div>A. {q.opsi_a}</div>
-                    <div>B. {q.opsi_b}</div>
-                    <div>C. {q.opsi_c}</div>
-                    <div>D. {q.opsi_d}</div>
-                  </div>
-                </div>
+            {questions.map((q, index) => {
+              const mainText = getQuestionMainText(q);
+              const questionImg = resolveAssetUrl(q.image_url || q.gambar_soal);
+              const afterText = String(
+                q.teks_sesudah_gambar || q.teks_lanjutan || ''
+              ).trim();
+              const isTrueFalse = ['true_false', 'tf', 'kategori'].includes(
+                (q.tipe_soal || '').toLowerCase()
+              );
 
-                <div className="flex items-center space-x-2 ml-4 shrink-0">
-                  <Link
-                    href={`/admin/add-question?exam_id=${encodeURIComponent(
-                      String(q.exam_id || examId || '')
-                    )}&edit_id=${encodeURIComponent(String(q.id))}`}
-                    className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
-                  >
-                    Edit
-                  </Link>
-                  <button
-                    type="button"
-                    disabled={deletingId === q.id}
-                    onClick={() => handleDelete(q.id)}
-                    className="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50"
-                  >
-                    {deletingId === q.id ? 'Menghapus...' : 'Hapus'}
-                  </button>
+              return (
+                <div
+                  key={q.id || index}
+                  className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm flex items-start justify-between gap-4"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-0.5 rounded">
+                        Soal No. {index + 1}
+                      </span>
+                      <span className="bg-indigo-50 text-indigo-700 text-xs font-semibold px-2.5 py-0.5 rounded">
+                        {formatQuestionType(q.tipe_soal)}
+                      </span>
+                      <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded font-semibold">
+                        Kunci: {formatAnswerKey(q.kunci_jawaban)}
+                      </span>
+                    </div>
+
+                    {mainText ? (
+                      <p className="text-slate-800 font-medium text-base mb-3 whitespace-pre-wrap">
+                        {mainText}
+                      </p>
+                    ) : (
+                      <p className="text-slate-400 italic text-sm mb-3">
+                        (Tidak ada teks soal utama)
+                      </p>
+                    )}
+
+                    {questionImg && (
+                      <div className="mb-3">
+                        <img
+                          src={questionImg}
+                          alt={`Gambar Soal ${index + 1}`}
+                          className="max-h-52 rounded-lg border object-contain bg-slate-50"
+                        />
+                      </div>
+                    )}
+
+                    {afterText && (
+                      <p className="text-slate-600 text-sm mb-3 whitespace-pre-wrap">
+                        {afterText}
+                      </p>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs text-gray-700 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      {(['a', 'b', 'c', 'd'] as const).map((opt) => {
+                        const optText = getOptionText(q, opt);
+                        const optImg = getOptionImage(q, opt);
+
+                        return (
+                          <div key={opt} className="flex flex-col gap-1">
+                            <div>
+                              <span className="font-bold text-slate-800 uppercase">
+                                {opt.toUpperCase()}.
+                              </span>{' '}
+                              {optText || (
+                                <span className="text-gray-400 italic">
+                                  {isTrueFalse
+                                    ? 'Pernyataan kosong'
+                                    : optImg
+                                      ? '(Gambar)'
+                                      : '-'}
+                                </span>
+                              )}
+                            </div>
+                            {optImg && (
+                              <img
+                                src={optImg}
+                                alt={`Opsi ${opt.toUpperCase()}`}
+                                className="h-14 w-fit rounded border object-contain bg-white"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <Link
+                      href={`/admin/add-question?exam_id=${encodeURIComponent(
+                        String(q.exam_id || id || '')
+                      )}&edit_id=${encodeURIComponent(String(q.id))}`}
+                      className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    >
+                      Edit
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={deletingId === q.id}
+                      onClick={() => handleDelete(q.id)}
+                      className="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
+                    >
+                      {deletingId === q.id ? 'Menghapus...' : 'Hapus'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+export default function AdminQuestionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+          <p className="text-slate-600 font-bold text-sm">
+            Memuat halaman soal...
+          </p>
+        </div>
+      }
+    >
+      <AdminQuestionsContent />
+    </Suspense>
   );
 }

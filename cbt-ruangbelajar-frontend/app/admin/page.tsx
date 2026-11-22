@@ -1,5 +1,8 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -63,25 +66,30 @@ const API_BASE_URL = (
 
 export default function AdminExamCardsPage() {
   const router = useRouter();
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [countsByExam, setCountsByExam] = useState<Record<string, number>>({});
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (!storedUser) {
-      router.push('/');
-      return;
-    }
-
     try {
-      const user = JSON.parse(storedUser);
-      if (user.role !== 'admin') {
-        alert('Akses khusus Admin!');
-        router.push('/dashboard');
+      const storedUser =
+        localStorage.getItem('user') || localStorage.getItem('studentUser');
+      if (!storedUser) {
+        router.replace('/');
+        return;
       }
+
+      const user = JSON.parse(storedUser);
+      if (user?.role !== 'admin') {
+        alert('Akses khusus Admin!');
+        router.replace('/dashboard');
+        return;
+      }
+
+      setIsAuthorized(true);
     } catch {
-      router.push('/');
+      router.replace('/');
     }
   }, [router]);
 
@@ -97,10 +105,17 @@ export default function AdminExamCardsPage() {
               `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(card.exam_id)}`,
               { cache: 'no-store' }
             );
+            if (!res.ok) {
+              return [card.exam_id, 0] as const;
+            }
             const data = await res.json();
             const list = Array.isArray(data)
               ? data
-              : data.questions || data.data || [];
+              : Array.isArray(data.questions)
+                ? data.questions
+                : Array.isArray(data.data)
+                  ? data.data
+                  : [];
             return [card.exam_id, list.length] as const;
           } catch {
             return [card.exam_id, 0] as const;
@@ -118,8 +133,20 @@ export default function AdminExamCardsPage() {
   }, []);
 
   useEffect(() => {
-    fetchAllCardCounts();
-  }, [fetchAllCardCounts]);
+    if (isAuthorized) {
+      fetchAllCardCounts();
+    }
+  }, [isAuthorized, fetchAllCardCounts]);
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <p className="text-sm font-bold text-slate-600">
+          Memverifikasi akses Admin...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 p-6 md:p-10 font-sans text-slate-800">
@@ -137,7 +164,7 @@ export default function AdminExamCardsPage() {
             <button
               type="button"
               onClick={fetchAllCardCounts}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm cursor-pointer"
             >
               ↻ Refresh
             </button>

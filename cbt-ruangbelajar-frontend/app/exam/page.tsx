@@ -3,6 +3,10 @@
 import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://139.190.107.150.sslip.io'
+).replace(/\/+$/, '');
+
 function resolveAssetUrl(url: string): string {
   if (!url) return '';
   const trimmed = url.trim();
@@ -21,12 +25,15 @@ function ExamContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const examId = searchParams.get('exam_id') || searchParams.get('examId') || '1';
+  const examId =
+    searchParams.get('exam_id') || searchParams.get('examId') || 'sd_bindo';
   const urlStudentExamId = searchParams.get('studentExamId');
   const [showDiscussionModal, setShowDiscussionModal] = useState(false);
 
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
-  const [studentExamId, setStudentExamId] = useState<string>(urlStudentExamId || '');
+  const [studentExamId, setStudentExamId] = useState<string>(
+    urlStudentExamId || ''
+  );
   const [isInitializing, setIsInitializing] = useState(true);
 
   const [isExamStarted, setIsExamStarted] = useState(false);
@@ -57,12 +64,19 @@ function ExamContent() {
     action: 'start' | 'answer' | 'finish',
     payload: Record<string, any>
   ) => {
-    const res = await fetch('/api/student/exam', {
+    const endpointMap = {
+      start: `${API_BASE_URL}/api/student/start-exam`,
+      answer: `${API_BASE_URL}/api/student/answer`,
+      finish: `${API_BASE_URL}/api/exam/finish`,
+    };
+
+    const res = await fetch(endpointMap[action], {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...payload }),
+      body: JSON.stringify(payload),
       cache: 'no-store',
     });
+
     const rawText = await res.text();
     try {
       return rawText ? JSON.parse(rawText) : {};
@@ -73,7 +87,8 @@ function ExamContent() {
 
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('user');
+      const savedUser =
+        localStorage.getItem('studentUser') || localStorage.getItem('user');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
         const uid = String(parsed.id || parsed.user_id || 'guest');
@@ -87,7 +102,6 @@ function ExamContent() {
     }
   }, []);
 
-  // Selalu mulai bersih tanpa centang/penanda bawaan sebelum siswa klik
   useEffect(() => {
     setIsExamFinished(false);
     setIsResultModalOpen(false);
@@ -111,8 +125,8 @@ function ExamContent() {
     }
 
     callExamLifecycleApi('start', {
-      user_id: Number(currentUserId),
-      exam_id: Number(examId),
+      user_id: Number(currentUserId) || currentUserId,
+      exam_id: examId,
     })
       .then((data) => {
         if (data.student_exam_id) {
@@ -139,7 +153,11 @@ function ExamContent() {
 
     if (typeof window !== 'undefined') {
       const savedTime = localStorage.getItem(timerKey);
-      if (savedTime !== null && !Number.isNaN(Number(savedTime)) && Number(savedTime) > 0) {
+      if (
+        savedTime !== null &&
+        !Number.isNaN(Number(savedTime)) &&
+        Number(savedTime) > 0
+      ) {
         setTimeLeft(Number(savedTime));
       }
     }
@@ -149,9 +167,10 @@ function ExamContent() {
     if (!examId) return;
 
     setLoading(true);
-    fetch(`/api/questions?exam_id=${encodeURIComponent(examId)}`, {
-      cache: 'no-store',
-    })
+    fetch(
+      `${API_BASE_URL}/api/questions?exam_id=${encodeURIComponent(examId)}`,
+      { cache: 'no-store' }
+    )
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -174,8 +193,12 @@ function ExamContent() {
   }, [examId]);
 
   const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const h = Math.floor(seconds / 3600)
+      .toString()
+      .padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60)
+      .toString()
+      .padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${h}:${m}:${s}`;
   };
@@ -203,14 +226,21 @@ function ExamContent() {
 
     const tipe = (q.tipe_soal || 'single').toLowerCase();
 
-    if (tipe === 'single' || tipe === 'single_choice' || tipe === 'pilihan_ganda') {
+    if (
+      tipe === 'single' ||
+      tipe === 'single_choice' ||
+      tipe === 'pilihan_ganda'
+    ) {
       if (typeof key === 'string') {
         try {
           const parsed = JSON.parse(key);
           if (typeof parsed === 'string') key = parsed;
         } catch {}
       }
-      return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
+      return String(userAns).trim().toUpperCase() ===
+        String(key).trim().toUpperCase()
+        ? 1
+        : 0;
     }
 
     if (tipe === 'multiple' || tipe === 'multiple_choice') {
@@ -282,7 +312,11 @@ function ExamContent() {
       }
 
       const userObj =
-        typeof userAns === 'object' && userAns !== null && !Array.isArray(userAns) ? userAns : {};
+        typeof userAns === 'object' &&
+        userAns !== null &&
+        !Array.isArray(userAns)
+          ? userAns
+          : {};
       const keyKeys = Object.keys(keyObj);
 
       if (keyKeys.length === 0) return 0;
@@ -304,7 +338,10 @@ function ExamContent() {
       return correctRows / keyKeys.length;
     }
 
-    return String(userAns).trim().toUpperCase() === String(key).trim().toUpperCase() ? 1 : 0;
+    return String(userAns).trim().toUpperCase() ===
+      String(key).trim().toUpperCase()
+      ? 1
+      : 0;
   }, []);
 
   const computeTotalScoreFromAnswers = useCallback(
@@ -388,7 +425,12 @@ function ExamContent() {
 
       setExamResultData({
         score: calculatedScore,
-        status: calculatedScore >= 80 ? 'Tinggi' : calculatedScore >= 60 ? 'Sedang' : 'Rendah',
+        status:
+          calculatedScore >= 80
+            ? 'Tinggi'
+            : calculatedScore >= 60
+              ? 'Sedang'
+              : 'Rendah',
         hasCalculated: true,
       });
       setIsResultModalOpen(true);
@@ -399,7 +441,12 @@ function ExamContent() {
       localStorage.setItem(scoreKey, String(fallbackScore));
       setExamResultData({
         score: fallbackScore,
-        status: fallbackScore >= 80 ? 'Tinggi' : fallbackScore >= 60 ? 'Sedang' : 'Rendah',
+        status:
+          fallbackScore >= 80
+            ? 'Tinggi'
+            : fallbackScore >= 60
+              ? 'Sedang'
+              : 'Rendah',
         hasCalculated: true,
       });
       setIsResultModalOpen(true);
@@ -409,7 +456,13 @@ function ExamContent() {
   };
 
   useEffect(() => {
-    if (!isExamStarted || isExamFinished || isResultModalOpen || isInitializing) return;
+    if (
+      !isExamStarted ||
+      isExamFinished ||
+      isResultModalOpen ||
+      isInitializing
+    )
+      return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -426,12 +479,20 @@ function ExamContent() {
 
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExamStarted, isExamFinished, isResultModalOpen, isInitializing, timerKey]);
+  }, [
+    isExamStarted,
+    isExamFinished,
+    isResultModalOpen,
+    isInitializing,
+    timerKey,
+  ]);
 
   if (loading || isInitializing) {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex items-center justify-center">
-        <p className="font-bold text-[#40b159] animate-pulse text-lg">Memuat Sesi Ujian...</p>
+        <p className="font-bold text-[#40b159] animate-pulse text-lg">
+          Memuat Sesi Ujian...
+        </p>
       </div>
     );
   }
@@ -446,11 +507,13 @@ function ExamContent() {
         <div className="max-w-3xl w-full bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6 md:p-8 text-slate-700 leading-relaxed text-sm md:text-base mb-8">
           <ol className="list-decimal list-inside space-y-3">
             <li>
-              Setiap paket soal terdiri atas <b>{questions.length} soal</b> yang wajib dikerjakan dengan cermat.
+              Setiap paket soal terdiri atas <b>{questions.length} soal</b> yang
+              wajib dikerjakan dengan cermat.
             </li>
             <li>Bacalah soal dengan saksama sebelum menjawab.</li>
             <li>
-              Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi soal.
+              Klik tombol <b>Berikutnya</b> atau <b>Sebelumnya</b> untuk navigasi
+              soal.
             </li>
             <li>
               Kunci jawaban dan pembahasan muncul setelah Anda mengakhiri ujian.
@@ -480,7 +543,9 @@ function ExamContent() {
     return (
       <div className="min-h-screen bg-[#eaf7f7] flex flex-col items-center justify-center p-6 text-center">
         <h2 className="text-xl font-bold text-red-600 mb-2">Belum Ada Soal</h2>
-        <p className="text-sm text-slate-500 mb-4">Soal untuk paket ini belum diinput oleh Admin.</p>
+        <p className="text-sm text-slate-500 mb-4">
+          Soal untuk paket ({examId}) belum diinput oleh Admin.
+        </p>
         <button
           onClick={() => router.push('/dashboard')}
           className="px-6 py-2.5 bg-[#40b159] text-white font-bold rounded-full text-sm cursor-pointer"
@@ -509,7 +574,6 @@ function ExamContent() {
       (opt.img && String(opt.img).trim() !== '')
   );
 
-  // Hanya simpan pilihan ketika siswa mengeklik opsi
   const handleSingleChoice = (label: string) => {
     if (isExamFinished) return;
     const updatedAnswers = { ...answers, [currentQ.id]: label };
@@ -517,7 +581,6 @@ function ExamContent() {
     saveAnswerToDB(currentQ.id, label);
   };
 
-  // Hanya toggle centang ketika siswa mengeklik opsi
   const handleMultipleChoice = (label: string) => {
     if (isExamFinished) return;
     const normalizedLabel = String(label).trim().toUpperCase();
@@ -533,11 +596,12 @@ function ExamContent() {
     saveAnswerToDB(currentQ.id, next);
   };
 
-  // Hanya set Benar/Salah ketika siswa mengeklik tombol
   const handleTrueFalse = (optLabel: string, isTrue: boolean) => {
     if (isExamFinished) return;
     const prevObj =
-      typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
+      typeof currentAns === 'object' &&
+      currentAns !== null &&
+      !Array.isArray(currentAns)
         ? (currentAns as { [key: string]: boolean })
         : {};
     const nextObj = { ...prevObj, [optLabel]: isTrue };
@@ -546,7 +610,8 @@ function ExamContent() {
     saveAnswerToDB(currentQ.id, nextObj);
   };
 
-  const currentQuestionCorrect = isExamFinished && checkIsCorrect(currentQ, currentAns);
+  const currentQuestionCorrect =
+    isExamFinished && checkIsCorrect(currentQ, currentAns);
 
   return (
     <div className="min-h-screen bg-[#eaf7f7] flex flex-col font-sans">
@@ -559,7 +624,9 @@ function ExamContent() {
             isExamFinished ? 'text-gray-400' : 'text-red-500'
           }`}
         >
-          {isExamFinished ? 'Ujian Telah Selesai (Waktu Berhenti)' : formatTime(timeLeft)}
+          {isExamFinished
+            ? 'Ujian Telah Selesai (Waktu Berhenti)'
+            : formatTime(timeLeft)}
         </div>
 
         <div className="flex items-center gap-3">
@@ -584,7 +651,7 @@ function ExamContent() {
               onClick={handleOpenResultModal}
               className="bg-white border-2 border-sky-500 text-sky-500 hover:bg-sky-50 font-bold px-6 py-2.5 rounded-full text-sm transition cursor-pointer"
             >
-              Lihat Hasil & Pembahasan
+              Lihat Hasil &amp; Pembahasan
             </button>
           )}
         </div>
@@ -594,7 +661,9 @@ function ExamContent() {
         <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden flex">
           <div
             className="bg-[#52b765] transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }}
+            style={{
+              width: `${((currentIndex + 1) / questions.length) * 100}%`,
+            }}
           />
         </div>
       </div>
@@ -605,7 +674,9 @@ function ExamContent() {
             {isExamFinished && (
               <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm flex flex-wrap justify-between items-center gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-700">Status Jawaban:</span>
+                  <span className="font-semibold text-slate-700">
+                    Status Jawaban:
+                  </span>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                       currentQuestionCorrect
@@ -613,7 +684,9 @@ function ExamContent() {
                         : 'bg-rose-100 text-rose-700'
                     }`}
                   >
-                    {currentQuestionCorrect ? 'Betul (Sesuai Kunci)' : 'Salah (Belum Sesuai Kunci)'}
+                    {currentQuestionCorrect
+                      ? 'Betul (Sesuai Kunci)'
+                      : 'Salah (Belum Sesuai Kunci)'}
                   </span>
                 </div>
                 <button
@@ -621,14 +694,18 @@ function ExamContent() {
                   onClick={handleOpenResultModal}
                   className="bg-sky-600 text-white px-3.5 py-1 rounded-lg text-xs font-bold hover:bg-sky-700 cursor-pointer"
                 >
-                  Lihat Hasil & Pembahasan
+                  Lihat Hasil &amp; Pembahasan
                 </button>
               </div>
             )}
 
             <div className="text-base md:text-lg text-slate-800 font-medium mb-4 leading-relaxed flex items-start whitespace-pre-wrap">
-              <span className="font-bold mr-2 flex-shrink-0">{currentIndex + 1}.</span>
-              <div className="flex-1">{currentQ.soal || questionText || ''}</div>
+              <span className="font-bold mr-2 flex-shrink-0">
+                {currentIndex + 1}.
+              </span>
+              <div className="flex-1">
+                {currentQ.soal || questionText || ''}
+              </div>
             </div>
 
             {currentQ.image_url && String(currentQ.image_url).trim() !== '' && (
@@ -647,8 +724,9 @@ function ExamContent() {
               </div>
             )}
 
-            {/* A. TIPE SINGLE CHOICE */}
-            {(tipeSoal === 'single' || tipeSoal === 'single_choice' || tipeSoal === 'pilihan_ganda') && (
+            {(tipeSoal === 'single' ||
+              tipeSoal === 'single_choice' ||
+              tipeSoal === 'pilihan_ganda') && (
               <div className="space-y-3 pl-2">
                 {optionsList.map((opt) => {
                   const isSelected =
@@ -659,7 +737,9 @@ function ExamContent() {
                   const isCorrectKey =
                     isExamFinished &&
                     String(opt.label).trim().toUpperCase() ===
-                      String(currentQ.kunci_jawaban || '').trim().toUpperCase();
+                      String(currentQ.kunci_jawaban || '')
+                        .trim()
+                        .toUpperCase();
                   const isWrongUserPick =
                     isExamFinished &&
                     currentAns !== undefined &&
@@ -691,12 +771,18 @@ function ExamContent() {
                     >
                       <div
                         className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                          isSelected ? 'border-slate-700' : 'border-slate-300 bg-white'
+                          isSelected
+                            ? 'border-slate-700'
+                            : 'border-slate-300 bg-white'
                         }`}
                       >
-                        {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />}
+                        {isSelected && (
+                          <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />
+                        )}
                       </div>
-                      <div className={`text-sm md:text-base leading-snug ${textStyle}`}>
+                      <div
+                        className={`text-sm md:text-base leading-snug ${textStyle}`}
+                      >
                         <span className="font-bold mr-1.5">{opt.label}.</span>
                         {opt.text}
                         {opt.img && String(opt.img).trim() !== '' && (
@@ -723,21 +809,26 @@ function ExamContent() {
               </div>
             )}
 
-            {/* B. TIPE MULTIPLE CHOICE */}
             {(tipeSoal === 'multiple' || tipeSoal === 'multiple_choice') &&
               (() => {
                 let keyArr: string[] = [];
                 const rawKey = currentQ.kunci_jawaban;
                 if (Array.isArray(rawKey)) {
-                  keyArr = rawKey.map((k: any) => String(k).trim().toUpperCase());
+                  keyArr = rawKey.map((k: any) =>
+                    String(k).trim().toUpperCase()
+                  );
                 } else if (typeof rawKey === 'string') {
                   try {
                     const parsed = JSON.parse(rawKey);
                     keyArr = Array.isArray(parsed)
                       ? parsed.map((k: any) => String(k).trim().toUpperCase())
-                      : rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                      : rawKey
+                          .split(',')
+                          .map((k: any) => k.trim().toUpperCase());
                   } catch {
-                    keyArr = rawKey.split(',').map((k: any) => k.trim().toUpperCase());
+                    keyArr = rawKey
+                      .split(',')
+                      .map((k: any) => k.trim().toUpperCase());
                   }
                 }
 
@@ -750,8 +841,10 @@ function ExamContent() {
                     {optionsList.map((opt) => {
                       const optLabel = String(opt.label).trim().toUpperCase();
                       const isChecked = userList.includes(optLabel);
-                      const isCorrectOpt = isExamFinished && keyArr.includes(optLabel);
-                      const isWrongUserPick = isExamFinished && isChecked && !isCorrectOpt;
+                      const isCorrectOpt =
+                        isExamFinished && keyArr.includes(optLabel);
+                      const isWrongUserPick =
+                        isExamFinished && isChecked && !isCorrectOpt;
 
                       let optionStyle = 'border-slate-300 bg-white';
                       let textStyle = 'text-slate-700';
@@ -798,8 +891,12 @@ function ExamContent() {
                               </svg>
                             )}
                           </div>
-                          <div className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}>
-                            <span className="font-bold mr-1.5">{opt.label}.</span>
+                          <div
+                            className={`text-sm md:text-base leading-snug flex-1 ${textStyle}`}
+                          >
+                            <span className="font-bold mr-1.5">
+                              {opt.label}.
+                            </span>
                             {opt.text}
                             {opt.img && String(opt.img).trim() !== '' && (
                               <img
@@ -826,28 +923,39 @@ function ExamContent() {
                 );
               })()}
 
-            {/* C. TIPE TRUE / FALSE */}
-            {(tipeSoal === 'true_false' || tipeSoal === 'tf' || tipeSoal === 'kategori') &&
+            {(tipeSoal === 'true_false' ||
+              tipeSoal === 'tf' ||
+              tipeSoal === 'kategori') &&
               (() => {
                 let keyObj: { [key: string]: any } = {};
                 const rawKey = currentQ.kunci_jawaban;
-                if (typeof rawKey === 'object' && rawKey !== null && !Array.isArray(rawKey)) {
+                if (
+                  typeof rawKey === 'object' &&
+                  rawKey !== null &&
+                  !Array.isArray(rawKey)
+                ) {
                   keyObj = rawKey;
                 } else if (typeof rawKey === 'string') {
                   try {
                     const parsed = JSON.parse(rawKey);
-                    if (typeof parsed === 'object' && parsed !== null) keyObj = parsed;
+                    if (typeof parsed === 'object' && parsed !== null)
+                      keyObj = parsed;
                   } catch {
-                    const parts = rawKey.split(',').map((v) => v.trim().toUpperCase());
+                    const parts = rawKey
+                      .split(',')
+                      .map((v) => v.trim().toUpperCase());
                     parts.forEach((p, idx) => {
                       const labelChar = String.fromCharCode(65 + idx);
-                      keyObj[labelChar] = p === 'B' || p === 'BENAR' || p === 'TRUE';
+                      keyObj[labelChar] =
+                        p === 'B' || p === 'BENAR' || p === 'TRUE';
                     });
                   }
                 }
 
                 const userObj =
-                  typeof currentAns === 'object' && currentAns !== null && !Array.isArray(currentAns)
+                  typeof currentAns === 'object' &&
+                  currentAns !== null &&
+                  !Array.isArray(currentAns)
                     ? currentAns
                     : {};
 
@@ -856,14 +964,22 @@ function ExamContent() {
                     <table className="w-full border-collapse border border-slate-200 rounded-xl overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-sm border-b">
-                          <th className="p-3 border-r text-left font-bold">Pernyataan</th>
-                          <th className="p-3 w-28 text-center font-bold">Benar</th>
-                          <th className="p-3 w-28 text-center font-bold">Salah</th>
+                          <th className="p-3 border-r text-left font-bold">
+                            Pernyataan
+                          </th>
+                          <th className="p-3 w-28 text-center font-bold">
+                            Benar
+                          </th>
+                          <th className="p-3 w-28 text-center font-bold">
+                            Salah
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {optionsList.map((opt) => {
-                          const optLabel = String(opt.label).trim().toUpperCase();
+                          const optLabel = String(opt.label)
+                            .trim()
+                            .toUpperCase();
 
                           let correctVal: boolean | undefined = undefined;
                           for (const k of Object.keys(keyObj)) {
@@ -888,17 +1004,24 @@ function ExamContent() {
                             }
                           }
 
-                          const isRowCorrect = userVal !== undefined && userVal === correctVal;
+                          const isRowCorrect =
+                            userVal !== undefined && userVal === correctVal;
 
                           return (
-                            <tr key={opt.label} className="border-b hover:bg-slate-50/50">
+                            <tr
+                              key={opt.label}
+                              className="border-b hover:bg-slate-50/50"
+                            >
                               <td className="p-3 border-r text-sm text-slate-700">
-                                <span className="font-bold mr-1.5">{opt.label}.</span>
+                                <span className="font-bold mr-1.5">
+                                  {opt.label}.
+                                </span>
                                 {opt.text}
                                 {isExamFinished && (
                                   <div className="text-xs mt-1">
                                     <span className="text-emerald-700 font-semibold">
-                                      Kunci: {correctVal === true ? 'Benar' : 'Salah'}
+                                      Kunci:{' '}
+                                      {correctVal === true ? 'Benar' : 'Salah'}
                                     </span>
                                     {userVal !== undefined && (
                                       <span
@@ -918,7 +1041,9 @@ function ExamContent() {
                               </td>
                               <td
                                 className={`p-3 text-center ${
-                                  isExamFinished && correctVal === true ? 'bg-emerald-50' : ''
+                                  isExamFinished && correctVal === true
+                                    ? 'bg-emerald-50'
+                                    : ''
                                 }`}
                               >
                                 <button
@@ -932,8 +1057,8 @@ function ExamContent() {
                                           : 'border-rose-600 bg-rose-600 text-white'
                                         : 'border-slate-700 bg-slate-700'
                                       : isExamFinished && correctVal === true
-                                      ? 'border-emerald-500 bg-emerald-100'
-                                      : 'border-slate-300 bg-white'
+                                        ? 'border-emerald-500 bg-emerald-100'
+                                        : 'border-slate-300 bg-white'
                                   }`}
                                 >
                                   {userVal === true && (
@@ -943,12 +1068,16 @@ function ExamContent() {
                               </td>
                               <td
                                 className={`p-3 text-center ${
-                                  isExamFinished && correctVal === false ? 'bg-emerald-50' : ''
+                                  isExamFinished && correctVal === false
+                                    ? 'bg-emerald-50'
+                                    : ''
                                 }`}
                               >
                                 <button
                                   type="button"
-                                  onClick={() => handleTrueFalse(opt.label, false)}
+                                  onClick={() =>
+                                    handleTrueFalse(opt.label, false)
+                                  }
                                   className={`w-6 h-6 rounded-full border-2 mx-auto flex items-center justify-center transition cursor-pointer ${
                                     userVal === false
                                       ? isExamFinished
@@ -957,8 +1086,8 @@ function ExamContent() {
                                           : 'border-rose-600 bg-rose-600 text-white'
                                         : 'border-slate-700 bg-slate-700'
                                       : isExamFinished && correctVal === false
-                                      ? 'border-emerald-500 bg-emerald-100'
-                                      : 'border-slate-300 bg-white'
+                                        ? 'border-emerald-500 bg-emerald-100'
+                                        : 'border-slate-300 bg-white'
                                   }`}
                                 >
                                   {userVal === false && (
@@ -977,8 +1106,12 @@ function ExamContent() {
 
             {isExamFinished && (
               <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm">
-                <p className="font-bold text-slate-700 mb-1">Kunci Jawaban Sistem:</p>
-                <p className="text-emerald-700 font-semibold">{getCorrectKeyString(currentQ)}</p>
+                <p className="font-bold text-slate-700 mb-1">
+                  Kunci Jawaban Sistem:
+                </p>
+                <p className="text-emerald-700 font-semibold">
+                  {getCorrectKeyString(currentQ)}
+                </p>
               </div>
             )}
           </div>
@@ -1008,7 +1141,9 @@ function ExamContent() {
       {showQuestionModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border">
-            <h3 className="font-bold text-slate-800 text-lg mb-4">Daftar Nomor Soal</h3>
+            <h3 className="font-bold text-slate-800 text-lg mb-4">
+              Daftar Nomor Soal
+            </h3>
             <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5 max-h-72 overflow-y-auto p-1">
               {questions.map((q, idx) => (
                 <button
@@ -1018,7 +1153,9 @@ function ExamContent() {
                     setShowQuestionModal(false);
                   }}
                   className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center border cursor-pointer ${
-                    idx === currentIndex ? 'bg-[#327ca6] text-white' : 'bg-slate-100 text-slate-700'
+                    idx === currentIndex
+                      ? 'bg-[#327ca6] text-white'
+                      : 'bg-slate-100 text-slate-700'
                   }`}
                 >
                   {idx + 1}
@@ -1039,7 +1176,9 @@ function ExamContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl p-6 text-center max-w-md w-full">
             <h3 className="text-xl font-medium mb-4">Peringatan</h3>
-            <p className="text-gray-500 mb-6">Apakah Anda ingin mengakhiri Ujian ini?</p>
+            <p className="text-gray-500 mb-6">
+              Apakah Anda ingin mengakhiri Ujian ini?
+            </p>
             <button
               onClick={() => {
                 setIsConfirmModalOpen(false);
@@ -1150,7 +1289,12 @@ function ExamContent() {
               onClick={() => setShowDiscussionModal(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
             >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1160,9 +1304,12 @@ function ExamContent() {
               </svg>
             </button>
 
-            <h3 className="text-gray-700 font-bold text-lg mb-1">Pembahasan Daftar Nomor Soal</h3>
+            <h3 className="text-gray-700 font-bold text-lg mb-1">
+              Pembahasan Daftar Nomor Soal
+            </h3>
             <p className="text-xs text-gray-500 mb-4">
-              Klik nomor merah atau hijau untuk melihat detail soal & kunci jawaban
+              Klik nomor merah atau hijau untuk melihat detail soal &amp; kunci
+              jawaban
             </p>
 
             <div className="grid grid-cols-5 gap-3 max-h-64 overflow-y-auto p-2 mb-6">
@@ -1216,7 +1363,13 @@ function ExamContent() {
 
 export default function ExamPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center font-bold text-[#52b765]">Memuat Ujian...</div>}>
+    <Suspense
+      fallback={
+        <div className="p-8 text-center font-bold text-[#52b765]">
+          Memuat Ujian...
+        </div>
+      }
+    >
       <ExamContent />
     </Suspense>
   );

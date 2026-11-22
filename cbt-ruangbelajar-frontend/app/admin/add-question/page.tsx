@@ -95,12 +95,21 @@ function AddEditQuestionContent() {
   useEffect(() => {
     if (!editId) return;
 
+    let active = true;
     setIsFetching(true);
+
     fetch(`${API_BASE_URL}/api/admin/questions/${encodeURIComponent(editId)}`, {
       cache: 'no-store',
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Gagal memuat data soal lama');
+        }
+        return data;
+      })
       .then((data) => {
+        if (!active) return;
         const q =
           data.data ||
           data.question ||
@@ -133,9 +142,21 @@ function AddEditQuestionContent() {
       })
       .catch((err) => {
         console.error('Gagal memuat data soal:', err);
-        alert('Terjadi kesalahan saat mengambil data soal lama.');
+        if (active) {
+          alert(
+            err instanceof Error
+              ? err.message
+              : 'Terjadi kesalahan saat mengambil data soal lama.'
+          );
+        }
       })
-      .finally(() => setIsFetching(false));
+      .finally(() => {
+        if (active) setIsFetching(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [editId, examId]);
 
   const handleTypeChange = (nextType: QuestionType) => {
@@ -187,6 +208,17 @@ function AddEditQuestionContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.teks_sebelum_gambar.trim() && !formData.gambar_soal) {
+      alert('Isi soal atau gambar soal wajib diisi minimal salah satunya.');
+      return;
+    }
+
+    if (formData.tipe_soal === 'multiple' && !formData.kunci_jawaban.trim()) {
+      alert('Pilih minimal satu kunci jawaban untuk soal pilihan ganda kompleks.');
+      return;
+    }
+
     setLoading(true);
 
     try {
